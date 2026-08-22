@@ -7,7 +7,7 @@ import pandas as pd
 # `predictions`/`page_utils` without installing all optional packages.
 sys.modules.setdefault("statsapi", types.ModuleType("statsapi"))
 
-from predictions import _build_game_recs
+from src.ui.recommendation_cards import _build_game_recs
 
 
 def test_runline_favorite_from_moneyline_away_favorite():

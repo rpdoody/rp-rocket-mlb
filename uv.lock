@@ -117,6 +117,8 @@ ocr = [
 
 [package.dev-dependencies]
 dev = [
+    { name = "pytest" },
+    { name = "pytest-cov" },
     { name = "ruff" },
 ]
 
@@ -154,7 +156,11 @@ requires-dist = [
 provides-extras = ["models", "ocr", "api", "dev"]
 
 [package.metadata.requires-dev]
-dev = [{ name = "ruff", specifier = ">=0.16.3" }]
+dev = [
+    { name = "pytest", specifier = ">=9.1.1" },
+    { name = "pytest-cov", specifier = ">=7.1.0" },
+    { name = "ruff", specifier = ">=0.16.3" },
+]
 
 [[package]]
 name = "beautifulsoup4"
