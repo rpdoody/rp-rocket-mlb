@@ -208,20 +208,10 @@ if not games_today:
     st.info("No MLB games are scheduled today, or the MLB Stats API is unavailable.")
     st.stop()
 
-if st.button(
-    "Load qualifying picks",
-    key="load_qualifying_picks",
-    type="primary",
-    width="content",
-):
-    st.session_state["show_qualifying_picks"] = True
-
-if not st.session_state.get("show_qualifying_picks", False):
-    st.caption(
-        f"{len(games_today)} game{'s' if len(games_today) != 1 else ''} scheduled. "
-        "Load picks to find qualifying recommendations."
-    )
-    st.stop()
+st.caption(
+    f"Scanning {len(games_today)} scheduled "
+    f"game{'s' if len(games_today) != 1 else ''} for qualifying picks…"
+)
 
 with st.spinner("Scanning the slate for qualifying picks…"):
     standings = cached_standings()
