@@ -123,13 +123,6 @@ def cached_precomputed():
     return _load_precomputed()
 
 
-from importlib import import_module
-
-
-_top_nav = import_module("top_nav")
-inject_app_style = _top_nav.inject_app_style
-render_top_nav = _top_nav.render_top_nav
-
 st.set_page_config(
     page_title="RP Rocket Report - MLB Predictions",
     page_icon="⚾",
