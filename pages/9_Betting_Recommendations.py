@@ -88,6 +88,7 @@ def grade_recommendation(
     market_key: str,
     side: dict,
     game: dict,
+    posted_total: float | None = None,
 ) -> tuple[str, str]:
     """Return (label, emoji) for a displayed recommendation."""
 
@@ -148,7 +149,9 @@ def grade_recommendation(
         return "PUSH", "↔️"
 
     if market_key == "ou":
-        posted_total = float(side["line"])
+        if posted_total is None:
+            return "PENDING", "⏳"
+
         final_total = away_score + home_score
         pick = str(side.get("pick", "")).lower()
 
@@ -159,13 +162,14 @@ def grade_recommendation(
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        if final_total < posted_total:
-            return "WIN", "✅"
-        if final_total > posted_total:
-            return "LOSS", "❌"
-        return "PUSH", "↔️"
+        if pick.startswith("under"):
+            if final_total < posted_total:
+                return "WIN", "✅"
+            if final_total > posted_total:
+                return "LOSS", "❌"
+            return "PUSH", "↔️"
 
-    return "PENDING", "⏳"
+        return "PENDING", "⏳"
 
 
 def empty_record() -> dict[str, int]:
@@ -318,7 +322,12 @@ for idx, game in enumerate(games_today):
         if side["edge"] <= 0:
             continue
 
-        result, _ = grade_recommendation(market_key, side, game)
+        result, _ = grade_recommendation(
+            market_key,
+            side,
+            game,
+            posted_total=market.get("posted") if market_key == "ou" else None,
+        )
 
         if result == "WIN":
             daily_records[market_key]["wins"] += 1
@@ -446,7 +455,12 @@ for idx, game in enumerate(games_today):
                 if side["edge"] <= 0:
                     st.caption("⛔ No official recommendation to grade.")
                 else:
-                    result, emoji = grade_recommendation("ou", side, game)
+                    result, emoji = grade_recommendation(
+                        "ou",
+                        side,
+                        game,
+                        posted_total=market.get("posted"),
+                    )
                     st.caption(f"{emoji} Result: **{result}**")
 
 with record_slot.container():
