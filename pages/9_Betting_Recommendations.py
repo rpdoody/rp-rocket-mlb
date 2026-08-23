@@ -108,7 +108,7 @@ def grade_recommendation(
     away_score = float(away_score)
     home_score = float(home_score)
 
-    pick = str(side.get("pick", ""))
+    pick = str(side.get("pick") or side.get("team") or "")
     pick_lower = pick.lower()
 
     home_name = str(game.get("home_name", "")).lower()
