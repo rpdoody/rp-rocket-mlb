@@ -103,24 +103,19 @@ def inject_app_style() -> None:
     )
 
 def render_top_nav() -> None:
-    """Render shared top navigation with the Rocket Report logo."""
+    """Render a compact, professional shared navigation header."""
     with st.container(key="top_nav_bar"):
-        logo_col, *nav_cols = st.columns(
-            [1.15] + [1] * len(NAV_ITEMS),
+        brand_col, *nav_cols = st.columns(
+            [1.45] + [1] * len(NAV_ITEMS),
             gap="small",
             vertical_alignment="center",
         )
 
-        with logo_col:
-            logo_path = ROOT / "data_files" / "IMG_0185.PNG"
-
-            if logo_path.exists():
-                st.image(str(logo_path), width=155)
-            else:
-                st.markdown(
-                    '<div class="top-nav-brand">RP ROCKET <span>MLB</span></div>',
-                    unsafe_allow_html=True,
-                )
+        with brand_col:
+            st.markdown(
+                '<div class="top-nav-brand">RP ROCKET <span>MLB</span></div>',
+                unsafe_allow_html=True,
+            )
 
         for column, (label, page_path) in zip(nav_cols, NAV_ITEMS):
             with column:
