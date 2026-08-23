@@ -104,18 +104,41 @@ def grade_recommendation(
     home_score = float(home_score)
 
     if market_key == "ml":
-        picked_home = side["team"] == game.get("home_name")
-        won = home_score > away_score if picked_home else away_score > home_score
+        pick = str(side.get("pick", "")).lower()
+        home_name = str(game.get("home_name", "")).lower()
+        away_name = str(game.get("away_name", "")).lower()
+
+        if home_name and home_name in pick:
+            won = home_score > away_score
+        elif away_name and away_name in pick:
+            won = away_score > home_score
+        else:
+            return "PENDING", "⏳"
+
         return ("WIN", "✅") if won else ("LOSS", "❌")
 
     if market_key == "rl":
-        picked_home = side["team"] == game.get("home_name")
         pick = str(side.get("pick", ""))
+        pick_lower = pick.lower()
+        home_name = str(game.get("home_name", "")).lower()
+        away_name = str(game.get("away_name", "")).lower()
 
-        # Expected pick examples: "Yankees +1.5" or "Jays −1.5".
-        line = 1.5 if "+1.5" in pick else -1.5
+        if home_name and home_name in pick_lower:
+            picked_home = True
+        elif away_name and away_name in pick_lower:
+            picked_home = False
+        else:
+            return "PENDING", "⏳"
+
+        if "+1.5" in pick:
+            line = 1.5
+        elif "-1.5" in pick or "−1.5" in pick:
+            line = -1.5
+        else:
+            return "PENDING", "⏳"
+
         adjusted_margin = (
-            (home_score - away_score + line) if picked_home else (away_score - home_score + line)
+            home_score - away_score + line if picked_home else away_score - home_score + line
         )
 
         if adjusted_margin > 0:
@@ -360,7 +383,8 @@ for idx, game in enumerate(games_today):
                     unsafe_allow_html=True,
                 )
                 st.caption(
-                    f"Other side: {_short(other['team'])} {other['odds_str']} "
+                    f"Other side: {_short(other.get('team', other.get('pick', 'Other side')))} "
+                    f"{other['odds_str']} "
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
 
