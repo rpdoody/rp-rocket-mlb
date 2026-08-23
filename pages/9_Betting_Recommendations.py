@@ -220,9 +220,18 @@ def cached_weather(venue_name: str, game_date_iso: str):
 init_session_state()
 
 today_et = eastern_today()
-games_today = cached_todays_schedule(today_et.isoformat())
 
 st.title("🎯 Games & Betting Recommendations")
+
+selected_date = st.date_input(
+    "Game date",
+    value=today_et,
+    max_value=today_et,
+    format="MM/DD/YYYY",
+    key="betting_recommendations_date",
+)
+
+games_today = cached_todays_schedule(selected_date.isoformat())
 st.caption(
     "Contextual run projections include historical offense/defense, probable "
     "starters, bullpen workload proxy, park factor, weather, day/night context, "
