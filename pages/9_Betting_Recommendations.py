@@ -235,20 +235,6 @@ if not games_today:
     )
     st.stop()
 
-if st.button(
-    "Load betting recommendations",
-    key="load_betting_recommendations",
-    type="primary",
-    width="content",
-):
-    st.session_state["show_betting_recommendations"] = True
-
-if not st.session_state.get("show_betting_recommendations", False):
-    st.caption(
-        f"{len(games_today)} game{'s' if len(games_today) != 1 else ''} scheduled today. "
-        "Load recommendations to calculate projections and compare available odds."
-    )
-    st.stop()
 
 with st.spinner("Building contextual projections and comparing odds…"):
     standings = cached_standings()
