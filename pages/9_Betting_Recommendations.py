@@ -80,11 +80,12 @@ def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
 
 
 def is_final_game(game: dict) -> bool:
-    return str(game.get("status", "")).strip().lower() in {
-        "final",
-        "game over",
-        "completed",
-    }
+    status = str(game.get("status", "")).strip().lower()
+
+    return (
+        status in {"final", "game over", "completed"}
+        or status.startswith("final")
+    )
 
 
 def grade_recommendation(
