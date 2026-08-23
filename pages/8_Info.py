@@ -15,9 +15,9 @@ render_top_nav()
 st.title("ℹ️ About")
 st.caption("Methodology, model logic, confidence tiers, and data sources.")
 
-st.markdown("""
+st.markdown(
+    """
 ### How Picks Are Generated
-""")
 
 1. **Data Ingestion** — MLB game logs, Statcast leaderboards, weather and odds
    are fetched daily and stored as Parquet files in `data_files/processed/`.
@@ -93,4 +93,5 @@ For ML-model-driven picks (XGBoost trained on 2020–2025 data), see the **Model
 | Charts | Plotly, Altair |
 | Scheduling | APScheduler, GitHub Actions |
 | Language | Python 3.11+ |
-""")
+"""
+)
