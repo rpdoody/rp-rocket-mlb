@@ -31,16 +31,15 @@ def inject_app_style() -> None:
             display: none !important;
         }
 
-        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) {
+        div[class*="st-key-top_nav_bar"] {
             background: #002d72;
             border: 1px solid #00265f;
             border-radius: 10px;
             box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
-            margin-bottom: 1.25rem;
             padding: 6px 10px;
         }
 
-        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a {
+        div[class*="st-key-top_nav_bar"] .stPageLink a {
             align-items: center;
             background: transparent;
             border: none;
@@ -59,16 +58,16 @@ def inject_app_style() -> None:
             width: 100%;
         }
 
-        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a:hover {
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover {
             background: rgba(255, 255, 255, 0.10);
             color: #ffffff !important;
         }
 
-        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a p {
+        div[class*="st-key-top_nav_bar"] .stPageLink a p {
             margin: 0;
         }
 
-        .top-nav-brand {
+        div[class*="st-key-top_nav_bar"] .top-nav-brand {
             color: #ffffff !important;
             font-size: 0.96rem;
             font-weight: 800;
@@ -77,7 +76,7 @@ def inject_app_style() -> None:
             white-space: nowrap;
         }
 
-        .top-nav-brand span {
+        div[class*="st-key-top_nav_bar"] .top-nav-brand span {
             color: #9fc5ff !important;
             font-size: 0.72rem;
             font-weight: 600;
@@ -85,12 +84,12 @@ def inject_app_style() -> None:
         }
 
         @media (max-width: 900px) {
-            div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a {
+            div[class*="st-key-top_nav_bar"] .stPageLink a {
                 font-size: 0.76rem;
                 padding: 11px 4px 9px;
             }
 
-            .top-nav-brand {
+            div[class*="st-key-top_nav_bar"] .top-nav-brand {
                 display: none;
             }
         }
@@ -102,22 +101,21 @@ def inject_app_style() -> None:
 
 def render_top_nav() -> None:
     """Render a compact, professional shared navigation header."""
-    st.markdown('<span class="top-nav-marker"></span>', unsafe_allow_html=True)
-
-    brand_col, *nav_cols = st.columns(
-        [1.45] + [1] * len(NAV_ITEMS),
-        gap="small",
-        vertical_alignment="center",
-    )
-
-    with brand_col:
-        st.markdown(
-            '<div class="top-nav-brand">RP ROCKET <span>MLB</span></div>',
-            unsafe_allow_html=True,
+    with st.container(key="top_nav_bar"):
+        brand_col, *nav_cols = st.columns(
+            [1.45] + [1] * len(NAV_ITEMS),
+            gap="small",
+            vertical_alignment="center",
         )
 
-    for column, (label, page_path) in zip(nav_cols, NAV_ITEMS):
-        with column:
-            st.page_link(page_path, label=label)
+        with brand_col:
+            st.markdown(
+                '<div class="top-nav-brand">RP ROCKET <span>MLB</span></div>',
+                unsafe_allow_html=True,
+            )
+
+        for column, (label, page_path) in zip(nav_cols, NAV_ITEMS):
+            with column:
+                st.page_link(page_path, label=label)
 
     st.divider()
