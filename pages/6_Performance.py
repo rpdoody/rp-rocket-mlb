@@ -15,13 +15,19 @@ from page_utils import (
     _american_to_implied_prob,
     _kelly_fraction,
     init_session_state,
-    render_sidebar,
 )
 
-render_sidebar(show_year_filter=False)
+inject_app_style()
+render_top_nav()
+
 init_session_state()
 
-tab_history, tab_perf, tab_bankroll = st.tabs(["Pick History", "Model Performance", "Bankroll"])
+st.title("📈 Performance")
+st.caption("Pick history, model performance, and bankroll tracking.")
+
+tab_history, tab_perf, tab_bankroll = st.tabs(
+    ["Pick History", "Model Performance", "Bankroll"]
+)
 
 _bt = st.session_state["eval_backtests"]
 
