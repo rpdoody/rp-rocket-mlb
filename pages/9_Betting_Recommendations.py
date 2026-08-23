@@ -108,14 +108,23 @@ def grade_recommendation(
     away_score = float(away_score)
     home_score = float(home_score)
 
-    if market_key == "ml":
+        if market_key == "ml":
         pick = str(side.get("pick", "")).lower()
         home_name = str(game.get("home_name", "")).lower()
         away_name = str(game.get("away_name", "")).lower()
 
-        if home_name and home_name in pick:
+        home_short = home_name.split()[-1] if home_name else ""
+        away_short = away_name.split()[-1] if away_name else ""
+
+        if (
+            (home_name and home_name in pick)
+            or (home_short and home_short in pick)
+        ):
             won = home_score > away_score
-        elif away_name and away_name in pick:
+        elif (
+            (away_name and away_name in pick)
+            or (away_short and away_short in pick)
+        ):
             won = away_score > home_score
         else:
             return "PENDING", "⏳"
