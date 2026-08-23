@@ -32,39 +32,42 @@ def inject_app_style() -> None:
         }
 
         div[class*="st-key-top_nav_bar"] {
-            background: #002d72;
+            background: #002d72 !important;
             border: 1px solid #00265f;
             border-radius: 10px;
             box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
             padding: 6px 10px;
         }
 
-        div[class*="st-key-top_nav_bar"] .stPageLink a {
+        div[class*="st-key-top_nav_bar"] .stPageLink a,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:visited,
+        div[class*="st-key-top_nav_bar"] .stPageLink a p,
+        div[class*="st-key-top_nav_bar"] .stPageLink a span {
             align-items: center;
-            background: transparent;
-            border: none;
-            color: #d9e3f1 !important;
+            background: transparent !important;
+            border: none !important;
+            color: #ffffff !important;
             display: flex;
+            fill: #ffffff !important;
             font-size: 0.88rem;
-            font-weight: 600;
+            font-weight: 650;
             justify-content: center;
             line-height: 1;
             min-height: 42px;
+            opacity: 1 !important;
             padding: 13px 8px 11px;
             text-align: center;
-            text-decoration: none;
+            text-decoration: none !important;
             transition: background 0.15s ease, color 0.15s ease;
             white-space: nowrap;
             width: 100%;
         }
 
-        div[class*="st-key-top_nav_bar"] .stPageLink a:hover {
-            background: rgba(255, 255, 255, 0.10);
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover p,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover span {
+            background: rgba(255, 255, 255, 0.14) !important;
             color: #ffffff !important;
-        }
-
-        div[class*="st-key-top_nav_bar"] .stPageLink a p {
-            margin: 0;
         }
 
         div[class*="st-key-top_nav_bar"] .top-nav-brand {
@@ -77,16 +80,17 @@ def inject_app_style() -> None:
         }
 
         div[class*="st-key-top_nav_bar"] .top-nav-brand span {
-            color: #9fc5ff !important;
+            color: #a9caff !important;
             font-size: 0.72rem;
-            font-weight: 600;
+            font-weight: 700;
             margin-left: 6px;
         }
 
         @media (max-width: 900px) {
-            div[class*="st-key-top_nav_bar"] .stPageLink a {
-                font-size: 0.76rem;
-                padding: 11px 4px 9px;
+            div[class*="st-key-top_nav_bar"] .stPageLink a,
+            div[class*="st-key-top_nav_bar"] .stPageLink a p {
+                font-size: 0.74rem;
+                padding: 10px 3px 8px;
             }
 
             div[class*="st-key-top_nav_bar"] .top-nav-brand {
@@ -97,7 +101,6 @@ def inject_app_style() -> None:
         """,
         unsafe_allow_html=True,
     )
-
 
 def render_top_nav() -> None:
     """Render a compact, professional shared navigation header."""
