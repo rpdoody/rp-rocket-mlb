@@ -5,6 +5,13 @@ from zoneinfo import ZoneInfo
 
 import streamlit as st
 
+st.set_page_config(
+    page_title="Sports Picks",
+    page_icon="🎯",
+    layout="wide",
+    initial_sidebar_state="collapsed",
+)
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from page_utils import (
@@ -15,8 +22,8 @@ from page_utils import (
     _fetch_todays_schedule,
     _load_game_context_cache,
     init_session_state,
-    render_sidebar,
 )
+
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import (
@@ -193,15 +200,14 @@ def cached_weather(venue_name: str, game_date_iso: str):
 
 
 init_session_state()
-render_sidebar(show_year_filter=False)
 
 today_et = eastern_today()
 games_today = cached_todays_schedule(today_et.isoformat())
 
 st.title("🎯 Sports Picks")
 st.caption(
-    "Only qualifying recommendations are displayed. "
-    f"A pick qualifies when its model edge is greater than {QUALIFYING_EDGE:.0%}."
+    "Qualifying MLB recommendations only. "
+    f"Minimum model edge: {QUALIFYING_EDGE:.0%}."
 )
 
 if not games_today:
