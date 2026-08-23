@@ -142,10 +142,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-def home_page() -> None:
+def home_page(pages: list[st.Page]) -> None:
     """Landing page for RP Rocket Report."""
 
-    render_top_nav()
+    render_top_nav(pages)
 
     hdr_left, hdr_right = st.columns([1, 5])
 
