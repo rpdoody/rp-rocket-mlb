@@ -2,7 +2,6 @@ import streamlit as st
 
 
 NAV_ITEMS = [
-    ("🏠 Home", "predictions.py"),
     ("📅 Today", "pages/1_Today.py"),
     ("⚾ Sports Picks", "pages/2_Sports_Picks.py"),
     ("📊 Stats", "pages/3_Stats.py"),
@@ -70,10 +69,13 @@ def inject_app_style() -> None:
 
 
 def render_top_nav() -> None:
-    """Display the same navigation links at the top of every app page."""
-    nav_columns = st.columns(len(NAV_ITEMS), gap="small")
+    """Display the shared navigation at the top of every application page."""
+    nav_columns = st.columns(len(NAV_ITEMS) + 1, gap="small")
 
-    for column, (label, page_path) in zip(nav_columns, NAV_ITEMS):
+    with nav_columns[0]:
+        st.page_link("Home", label="🏠 Home")
+
+    for column, (label, page_path) in zip(nav_columns[1:], NAV_ITEMS):
         with column:
             st.page_link(page_path, label=label)
 
