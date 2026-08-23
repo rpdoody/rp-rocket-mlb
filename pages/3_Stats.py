@@ -24,6 +24,9 @@ from retrosheet import (
     season_team_pitching,
 )
 
+inject_app_style()
+render_top_nav()
+
 ET = ZoneInfo("America/New_York")
 _CUR_YEAR = datetime.datetime.now(ET).year
 
