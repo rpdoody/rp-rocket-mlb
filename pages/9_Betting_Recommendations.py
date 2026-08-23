@@ -108,48 +108,37 @@ def grade_recommendation(
     away_score = float(away_score)
     home_score = float(home_score)
 
-        if market_key == "ml":
-        pick = str(side.get("pick", "")).lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
+    pick = str(side.get("pick", ""))
+    pick_lower = pick.lower()
 
-        home_short = home_name.split()[-1] if home_name else ""
-        away_short = away_name.split()[-1] if away_name else ""
+    home_name = str(game.get("home_name", "")).lower()
+    away_name = str(game.get("away_name", "")).lower()
+    home_short = home_name.split()[-1] if home_name else ""
+    away_short = away_name.split()[-1] if away_name else ""
 
-        if (
-            (home_name and home_name in pick)
-            or (home_short and home_short in pick)
-        ):
-            won = home_score > away_score
-        elif (
-            (away_name and away_name in pick)
-            or (away_short and away_short in pick)
-        ):
-            won = away_score > home_score
-        else:
-            return "PENDING", "⏳"
+    picked_home = (
+        (home_name and home_name in pick_lower)
+        or (home_short and home_short in pick_lower)
+    )
+    picked_away = (
+        (away_name and away_name in pick_lower)
+        or (away_short and away_short in pick_lower)
+    )
 
-        return ("WIN", "✅") if won else ("LOSS", "❌")
+    if market_key == "ml":
+        if picked_home:
+            return ("WIN", "✅") if home_score > away_score else ("LOSS", "❌")
 
-        if market_key == "rl":
-        pick = str(side.get("pick", ""))
-        pick_lower = pick.lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
+        if picked_away:
+            return ("WIN", "✅") if away_score > home_score else ("LOSS", "❌")
 
-        home_short = home_name.split()[-1] if home_name else ""
-        away_short = away_name.split()[-1] if away_name else ""
+        return "PENDING", "⏳"
 
-        if (
-            (home_name and home_name in pick_lower)
-            or (home_short and home_short in pick_lower)
-        ):
-            picked_home = True
-        elif (
-            (away_name and away_name in pick_lower)
-            or (away_short and away_short in pick_lower)
-        ):
-            picked_home = False
+    if market_key == "rl":
+        if picked_home:
+            margin = home_score - away_score
+        elif picked_away:
+            margin = away_score - home_score
         else:
             return "PENDING", "⏳"
 
@@ -160,40 +149,35 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
-        adjusted_margin = (
-            home_score - away_score + line
-            if picked_home
-            else away_score - home_score + line
-        )
+        adjusted_margin = margin + line
 
         if adjusted_margin > 0:
             return "WIN", "✅"
         if adjusted_margin < 0:
             return "LOSS", "❌"
         return "PUSH", "↔️"
+
     if market_key == "ou":
         if posted_total is None:
             return "PENDING", "⏳"
 
         final_total = away_score + home_score
-        pick = str(side.get("pick", "")).lower()
 
-        if pick.startswith("over"):
+        if pick_lower.startswith("over"):
             if final_total > posted_total:
                 return "WIN", "✅"
             if final_total < posted_total:
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        if pick.startswith("under"):
+        if pick_lower.startswith("under"):
             if final_total < posted_total:
                 return "WIN", "✅"
             if final_total > posted_total:
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        return "PENDING", "⏳"
-
+    return "PENDING", "⏳"
 
 def empty_record() -> dict[str, int]:
     return {"wins": 0, "losses": 0, "pushes": 0, "pending": 0}
