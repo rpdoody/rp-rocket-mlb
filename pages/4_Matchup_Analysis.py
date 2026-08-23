@@ -11,6 +11,11 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.top_nav import inject_app_style, render_top_nav
+
+inject_app_style()
+render_top_nav()
+
 ET = ZoneInfo("America/New_York")
 
 from src.top_nav import inject_app_style, render_top_nav
