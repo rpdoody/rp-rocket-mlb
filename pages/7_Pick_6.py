@@ -1,11 +1,10 @@
 """Page: Pick 6 — DraftKings Pick 6 MLB Player Props"""
 
+import datetime
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-
-import datetime
 
 import numpy as np
 import pandas as pd
@@ -13,10 +12,7 @@ import plotly.express as px
 import streamlit as st
 
 from src.top_nav import inject_app_style, render_top_nav
-from page_utils import (
-    add_betting_oracle_footer,
-    render_sidebar,
-)
+from page_utils import add_betting_oracle_footer
 from retrosheet import (
     load_batting,
     load_pitching,
@@ -25,7 +21,11 @@ from retrosheet import (
     season_pitching_leaders,
 )
 
-render_sidebar(show_year_filter=False)
+inject_app_style()
+render_top_nav()
+
+st.title("🎯 Pick 6")
+st.caption("DraftKings Pick 6 MLB player-prop research and slate builder.")
 
 
 def get_dataframe_height(df, row_height=35, header_height=38, padding=2, max_height=600):
