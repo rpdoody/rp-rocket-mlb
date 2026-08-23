@@ -263,12 +263,6 @@ status_labels = {
 }
 
 for idx, game in enumerate(games_today):
-        if "Rays" in game.get("away_name", "") or "Rays" in game.get("home_name", ""):
-        st.caption(
-            f"Debug — status: {game.get('status')} | "
-            f"away: {game.get('away_name')} {game.get('away_score')} | "
-            f"home: {game.get('home_name')} {game.get('home_score')}"
-        )
     away_full = game.get("away_name", "Away")
     home_full = game.get("home_name", "Home")
     away_sp = game.get("away_probable_pitcher", "TBD") or "TBD"
