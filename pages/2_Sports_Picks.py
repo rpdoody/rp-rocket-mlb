@@ -3,9 +3,12 @@ import sys
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
+
 import streamlit as st
 
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
+
 
 from page_utils import (
     _MLB_TO_RETRO,
@@ -27,52 +30,62 @@ from src.ui.recommendation_cards import (
     _short,
 )
 
+
 ET = ZoneInfo("America/New_York")
+
 
 
 def eastern_today() -> datetime.date:
     return datetime.datetime.now(ET).date()
 
 
+
 def format_game_time_et(game_datetime: str) -> str:
     if not game_datetime:
         return "TBD"
+
 
     try:
         game_time = datetime.datetime.fromisoformat(game_datetime.replace("Z", "+00:00"))
         if game_time.tzinfo is None:
             game_time = game_time.replace(tzinfo=datetime.timezone.utc)
+
 
         return game_time.astimezone(ET).strftime("%I:%M %p ET").lstrip("0")
     except (TypeError, ValueError):
         return "TBD"
 
 
+
 def game_date_from_datetime(game_datetime: str) -> str:
     if not game_datetime:
         return ""
+
 
     try:
         game_time = datetime.datetime.fromisoformat(game_datetime.replace("Z", "+00:00"))
         if game_time.tzinfo is None:
             game_time = game_time.replace(tzinfo=datetime.timezone.utc)
 
+
         return game_time.astimezone(ET).date().isoformat()
     except (TypeError, ValueError):
         return ""
+
 
 
 def normalize_team_name(team_name: str | None) -> str:
     return "".join(char.lower() for char in (team_name or "") if char.isalnum())
 
 
+
 def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
-    return (
-        normalize_team_name(game.get("away_name"))
-        == normalize_team_name(odds_game.get("away_team"))
-        and normalize_team_name(game.get("home_name"))
-        == normalize_team_name(odds_game.get("home_team"))
+    return normalize_team_name(game.get("away_name")) == normalize_team_name(
+        odds_game.get("away_team")
+    ) and normalize_team_name(game.get("home_name")) == normalize_team_name(
+        odds_game.get("home_team")
     )
+
 
 
 def is_final_game(game: dict) -> bool:
@@ -83,6 +96,7 @@ def is_final_game(game: dict) -> bool:
     }
 
 
+
 def grade_recommendation(
     market_key: str,
     side: dict,
@@ -90,22 +104,29 @@ def grade_recommendation(
     posted_total: float | None = None,
 ) -> tuple[str, str]:
     """Return (label, emoji) for a displayed recommendation."""
+
+
     if not is_final_game(game):
         return "PENDING", "⏳"
+
 
     away_score = game.get("away_score")
     home_score = game.get("home_score")
 
+
     if away_score is None or home_score is None:
         return "PENDING", "⏳"
 
+
     away_score = float(away_score)
     home_score = float(home_score)
+
 
     if market_key == "ml":
         pick = str(side.get("pick", "")).lower()
         home_name = str(game.get("home_name", "")).lower()
         away_name = str(game.get("away_name", "")).lower()
+
 
         if home_name and home_name in pick:
             won = home_score > away_score
@@ -114,13 +135,16 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
+
         return ("WIN", "✅") if won else ("LOSS", "❌")
+
 
     if market_key == "rl":
         pick = str(side.get("pick", ""))
         pick_lower = pick.lower()
         home_name = str(game.get("home_name", "")).lower()
         away_name = str(game.get("away_name", "")).lower()
+
 
         if home_name and home_name in pick_lower:
             picked_home = True
@@ -129,6 +153,7 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
+
         if "+1.5" in pick:
             line = 1.5
         elif "-1.5" in pick or "−1.5" in pick:
@@ -136,11 +161,11 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
+
         adjusted_margin = (
-            home_score - away_score + line
-            if picked_home
-            else away_score - home_score + line
+            home_score - away_score + line if picked_home else away_score - home_score + line
         )
+
 
         if adjusted_margin > 0:
             return "WIN", "✅"
@@ -148,12 +173,15 @@ def grade_recommendation(
             return "LOSS", "❌"
         return "PUSH", "↔️"
 
+
     if market_key == "ou":
         if posted_total is None:
             return "PENDING", "⏳"
 
+
         final_total = away_score + home_score
         pick = str(side.get("pick", "")).lower()
+
 
         if pick.startswith("over"):
             if final_total > posted_total:
@@ -162,6 +190,7 @@ def grade_recommendation(
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
+
         if pick.startswith("under"):
             if final_total < posted_total:
                 return "WIN", "✅"
@@ -169,20 +198,25 @@ def grade_recommendation(
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-    return "PENDING", "⏳"
+
+        return "PENDING", "⏳"
+
 
 
 def empty_record() -> dict[str, int]:
     return {"wins": 0, "losses": 0, "pushes": 0, "pending": 0}
 
 
+
 def record_text(record: dict[str, int]) -> str:
     return f"{record['wins']}-{record['losses']}-{record['pushes']}"
+
 
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_todays_schedule(game_date_iso: str):
     game_date = datetime.date.fromisoformat(game_date_iso)
+
 
     try:
         return _fetch_todays_schedule(game_date)
@@ -190,9 +224,11 @@ def cached_todays_schedule(game_date_iso: str):
         return _fetch_todays_schedule()
 
 
+
 @st.cache_data(ttl=900, show_spinner=False)
 def cached_standings():
     return _fetch_team_standings()
+
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -200,9 +236,11 @@ def cached_pitcher_stats(pitcher_name: str):
     return _fetch_pitcher_stats(pitcher_name)
 
 
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_espn_odds():
     return _fetch_espn_odds()
+
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -210,11 +248,14 @@ def cached_weather(venue_name: str, game_date_iso: str):
     return fetch_forecast(venue_name, game_date_iso)
 
 
+
 init_session_state()
 render_sidebar(show_year_filter=False)
 
+
 today_et = eastern_today()
 games_today = cached_todays_schedule(today_et.isoformat())
+
 
 st.title("🎯 Games & Betting Recommendations")
 st.caption(
@@ -224,8 +265,9 @@ st.caption(
     "⛔ PASS = negative edge."
 )
 
+
 record_slot = st.empty()
-all_picks_slot = st.empty()
+
 
 if not games_today:
     st.info(
@@ -233,6 +275,7 @@ if not games_today:
         "Check back on a game day."
     )
     st.stop()
+
 
 if st.button(
     "Load betting recommendations",
@@ -242,6 +285,7 @@ if st.button(
 ):
     st.session_state["show_betting_recommendations"] = True
 
+
 if not st.session_state.get("show_betting_recommendations", False):
     st.caption(
         f"{len(games_today)} game{'s' if len(games_today) != 1 else ''} scheduled today. "
@@ -249,18 +293,16 @@ if not st.session_state.get("show_betting_recommendations", False):
     )
     st.stop()
 
+
 with st.spinner("Building contextual projections and comparing odds…"):
     standings = cached_standings()
     game_context = _load_game_context_cache()
     espn_odds = cached_espn_odds()
-
 daily_records = {
     "ml": empty_record(),
     "rl": empty_record(),
     "ou": empty_record(),
 }
-all_picks = []
-
 status_labels = {
     "Final": "🏁 Final",
     "Game Over": "🏁 Final",
@@ -274,11 +316,6 @@ status_labels = {
     "Cancelled": "🚫 Cancelled",
 }
 
-market_meta = {
-    "ml": {"label": "Moneyline", "icon": "💵"},
-    "rl": {"label": "Run Line", "icon": "📏"},
-    "ou": {"label": "Over/Under", "icon": "📊"},
-}
 
 for idx, game in enumerate(games_today):
     away_full = game.get("away_name", "Away")
@@ -290,13 +327,13 @@ for idx, game in enumerate(games_today):
     game_time = format_game_time_et(game.get("game_datetime", ""))
     away_retro = _MLB_TO_RETRO.get(away_full, away_full)
     home_retro = _MLB_TO_RETRO.get(home_full, home_full)
-    weather_date = (
-        game_date_from_datetime(game.get("game_datetime", "")) or today_et.isoformat()
-    )
+    weather_date = game_date_from_datetime(game.get("game_datetime", "")) or today_et.isoformat()
+
 
     away_pitcher_stats = cached_pitcher_stats(away_sp)
     home_pitcher_stats = cached_pitcher_stats(home_sp)
     weather = cached_weather(venue, weather_date) if venue else None
+
 
     projection = project_contextual_game(
         game=game,
@@ -309,29 +346,44 @@ for idx, game in enumerate(games_today):
         weather=weather,
     )
 
+
+    score_str = ""
+    if (
+        str(status).lower() in {"final", "game over", "in progress", "live", "completed"}
+        and game.get("away_score") is not None
+        and game.get("home_score") is not None
+    ):
+        score_str = f" &nbsp;·&nbsp; **{game['away_score']}–{game['home_score']}**"
+
+
     espn_game = next(
         (odds for odds in espn_odds if is_matching_odds_game(game, odds)),
         None,
     )
     recs = _build_game_recs(game, espn_game, projection, standings)
 
-    # Collect and grade every positive-edge recommendation.
+
     for market_key in ("ml", "rl", "ou"):
         if market_key not in recs:
             continue
 
+
         market = recs[market_key]
         side = market[market["best"]]
 
+
+        # Count only actionable, positive-edge recommendations.
         if side["edge"] <= 0:
             continue
 
-        result, emoji = grade_recommendation(
+
+        result, _ = grade_recommendation(
             market_key,
             side,
             game,
             posted_total=market.get("posted") if market_key == "ou" else None,
         )
+
 
         if result == "WIN":
             daily_records[market_key]["wins"] += 1
@@ -341,36 +393,12 @@ for idx, game in enumerate(games_today):
             daily_records[market_key]["pushes"] += 1
         else:
             daily_records[market_key]["pending"] += 1
-
-        all_picks.append(
-            {
-                "matchup": f"{away_full} @ {home_full}",
-                "game_time": game_time,
-                "market": market_key,
-                "market_label": market_meta[market_key]["label"],
-                "market_icon": market_meta[market_key]["icon"],
-                "pick": side.get("pick", side.get("team", "—")),
-                "odds": side.get("odds_str", "—"),
-                "edge": side["edge"],
-                "est_prob": side.get("est_prob"),
-                "result": result,
-                "result_emoji": emoji,
-            }
-        )
-
-    score_str = ""
-    if (
-        str(status).lower()
-        in {"final", "game over", "in progress", "live", "completed"}
-        and game.get("away_score") is not None
-        and game.get("home_score") is not None
-    ):
-        score_str = f" &nbsp;·&nbsp; **{game['away_score']}–{game['home_score']}**"
-
     home_prob = projection.home_win_probability
+
 
     with st.container(border=True):
         header_left, header_right = st.columns([3, 2])
+
 
         with header_left:
             st.markdown(
@@ -386,28 +414,35 @@ for idx, game in enumerate(games_today):
                 unsafe_allow_html=True,
             )
 
+
         with header_right:
             st.markdown(
                 _prob_bar_html(home_prob, home_full, away_full),
                 unsafe_allow_html=True,
             )
 
+
         st.caption(_projection_summary(projection))
+
 
         if projection.warnings:
             with st.expander("Projection data notes", expanded=False):
                 for warning in sorted(set(projection.warnings)):
                     st.caption(f"• {warning}")
 
+
         if not recs:
             st.caption("⏳ Odds not yet available for this game.")
             continue
 
+
         st.divider()
         col_ml, col_rl, col_ou = st.columns(3)
 
+
         with col_ml:
             st.markdown("##### 💵 Moneyline")
+
 
             if "ml" not in recs:
                 st.caption("— odds unavailable —")
@@ -417,14 +452,17 @@ for idx, game in enumerate(games_today):
                 other = market["away" if market["best"] == "home" else "home"]
                 explanation = f"Est: {side['est_prob']:.0%} · Impl: {side['impl']:.0%}"
 
+
                 st.markdown(
                     _rec_card_html("ML", side, explanation),
                     unsafe_allow_html=True,
                 )
                 st.caption(
                     f"Other side: {_short(other.get('team', other.get('pick', 'Other side')))} "
-                    f"{other['odds_str']} (edge {other['edge'] * 100:+.1f}%)"
+                    f"{other['odds_str']} "
+                    f"(edge {other['edge'] * 100:+.1f}%)"
                 )
+
 
                 if side["edge"] <= 0:
                     st.caption("⛔ No official recommendation to grade.")
@@ -432,8 +470,10 @@ for idx, game in enumerate(games_today):
                     result, emoji = grade_recommendation("ml", side, game)
                     st.caption(f"{emoji} Result: **{result}**")
 
+
         with col_rl:
             st.markdown("##### 📏 Run Line (±1.5)")
+
 
             if "rl" not in recs:
                 st.caption("— odds unavailable —")
@@ -443,6 +483,7 @@ for idx, game in enumerate(games_today):
                 other = market["away" if market["best"] == "home" else "home"]
                 explanation = f"Est cover: {side['est_prob']:.0%} · Impl: {side['impl']:.0%}"
 
+
                 st.markdown(
                     _rec_card_html("RL", side, explanation),
                     unsafe_allow_html=True,
@@ -451,15 +492,16 @@ for idx, game in enumerate(games_today):
                     f"Other side: {other['pick']} {other['odds_str']} "
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
-
                 if side["edge"] <= 0:
                     st.caption("⛔ No official recommendation to grade.")
                 else:
                     result, emoji = grade_recommendation("rl", side, game)
                     st.caption(f"{emoji} Result: **{result}**")
 
+
         with col_ou:
             st.markdown("##### 📊 Over/Under")
+
 
             if "ou" not in recs:
                 st.caption("— odds unavailable —")
@@ -473,6 +515,7 @@ for idx, game in enumerate(games_today):
                     f"Impl: {side['impl']:.0%}"
                 )
 
+
                 st.markdown(
                     _rec_card_html("OU", side, explanation),
                     unsafe_allow_html=True,
@@ -481,6 +524,7 @@ for idx, game in enumerate(games_today):
                     f"Other side: {other['pick']} {other['odds_str']} "
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
+
 
                 if side["edge"] <= 0:
                     st.caption("⛔ No official recommendation to grade.")
@@ -493,9 +537,11 @@ for idx, game in enumerate(games_today):
                     )
                     st.caption(f"{emoji} Result: **{result}**")
 
+
 with record_slot.container():
     st.markdown("### 📊 Today’s Record")
     ml_record, rl_record, ou_record = st.columns(3)
+
 
     ml_record.metric(
         "💵 Moneyline",
@@ -516,38 +562,5 @@ with record_slot.container():
         delta_color="off",
     )
 
+
     st.caption("Record format: W-L-P. Only positive-edge recommendations are included.")
-
-with all_picks_slot.container():
-    st.markdown("### 🎯 All Picks Today")
-
-    if not all_picks:
-        st.info("No positive-edge recommendations are available yet.")
-    else:
-        st.caption(
-            f"{len(all_picks)} actionable pick"
-            f"{'s' if len(all_picks) != 1 else ''}, ranked by model edge."
-        )
-
-        for pick in sorted(all_picks, key=lambda item: item["edge"], reverse=True):
-            with st.container(border=True):
-                pick_left, pick_right = st.columns([5, 1])
-
-                with pick_left:
-                    probability = (
-                        f" · Model: {pick['est_prob']:.0%}"
-                        if pick["est_prob"] is not None
-                        else ""
-                    )
-                    st.markdown(
-                        f"**{pick['market_icon']} {pick['market_label']} — "
-                        f"{pick['matchup']}**<br>"
-                        f"🕐 {pick['game_time']}<br>"
-                        f"Pick: **{pick['pick']}** ({pick['odds']})"
-                        f"{probability} · Edge: **{pick['edge'] * 100:+.1f}%**",
-                        unsafe_allow_html=True,
-                    )
-
-                with pick_right:
-                    st.markdown(f"### {pick['result_emoji']}")
-                    st.caption(pick["result"])
