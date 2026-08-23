@@ -31,11 +31,19 @@ def inject_app_style() -> None:
             display: none !important;
         }
 
-        div[data-testid="stHorizontalBlock"] .stPageLink a {
+        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) {
+            background: #002d72;
+            border: 1px solid #00265f;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+            margin-bottom: 1.25rem;
+            padding: 6px 10px;
+        }
+
+        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a {
             align-items: center;
             background: transparent;
             border: none;
-            border-radius: 0;
             color: #d9e3f1 !important;
             display: flex;
             font-size: 0.88rem;
@@ -51,27 +59,17 @@ def inject_app_style() -> None:
             width: 100%;
         }
 
-        div[data-testid="stHorizontalBlock"] .stPageLink a:hover {
+        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a:hover {
             background: rgba(255, 255, 255, 0.10);
             color: #ffffff !important;
         }
 
-        div[data-testid="stHorizontalBlock"] .stPageLink a p {
+        div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a p {
             margin: 0;
         }
 
-        .top-nav-shell {
-            background: #002d72;
-            border: 1px solid #00265f;
-            border-radius: 10px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
-            margin-bottom: 1.25rem;
-            overflow: hidden;
-            padding: 0 10px;
-        }
-
         .top-nav-brand {
-            color: #ffffff;
+            color: #ffffff !important;
             font-size: 0.96rem;
             font-weight: 800;
             letter-spacing: 0.02em;
@@ -80,19 +78,14 @@ def inject_app_style() -> None:
         }
 
         .top-nav-brand span {
-            color: #9fc5ff;
+            color: #9fc5ff !important;
             font-size: 0.72rem;
             font-weight: 600;
             margin-left: 6px;
         }
 
-        .top-nav-divider {
-            border-top: 1px solid #dce3ed;
-            margin: 0 0 1.25rem 0;
-        }
-
         @media (max-width: 900px) {
-            div[data-testid="stHorizontalBlock"] .stPageLink a {
+            div[data-testid="stHorizontalBlock"]:has(.top-nav-marker) .stPageLink a {
                 font-size: 0.76rem;
                 padding: 11px 4px 9px;
             }
@@ -109,7 +102,7 @@ def inject_app_style() -> None:
 
 def render_top_nav() -> None:
     """Render a compact, professional shared navigation header."""
-    st.markdown('<div class="top-nav-shell">', unsafe_allow_html=True)
+    st.markdown('<span class="top-nav-marker"></span>', unsafe_allow_html=True)
 
     brand_col, *nav_cols = st.columns(
         [1.45] + [1] * len(NAV_ITEMS),
@@ -127,5 +120,4 @@ def render_top_nav() -> None:
         with column:
             st.page_link(page_path, label=label)
 
-    st.markdown("</div>", unsafe_allow_html=True)
-    st.markdown('<div class="top-nav-divider"></div>', unsafe_allow_html=True)
+    st.divider()
