@@ -13,6 +13,7 @@ import streamlit as st
 
 ET = ZoneInfo("America/New_York")
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     READABLE_COLS,
     _load_precomputed,

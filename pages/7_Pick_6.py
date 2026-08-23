@@ -12,6 +12,7 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     add_betting_oracle_footer,
     render_sidebar,
@@ -302,7 +303,11 @@ def _ocr_available() -> bool:
     try:
         import shutil
 
-        import pytesseract
+        # Load the optional OCR dependency dynamically so static analysis does
+        # not require it to be installed for the rest of the page to run.
+        import importlib
+
+        pytesseract = importlib.import_module("pytesseract")
 
         # Explicitly set the binary path so Streamlit (which may inherit a
         # different PATH from its launcher) can always find the executable.
@@ -330,11 +335,14 @@ def _parse_dk_screenshot(image_bytes: bytes) -> tuple[list[dict], str]:
     Each pick dict has keys: display_name, first_initial, last_name, line, prop
     """
     import io
+    import importlib
     import re
     import shutil
 
     try:
-        import pytesseract
+        # Load optional OCR dependency dynamically so deployments that do not
+        # install it can still load this page without an unresolved import.
+        pytesseract = importlib.import_module("pytesseract")
         from PIL import Image, ImageEnhance
 
         # Ensure the binary path is explicit for the Streamlit process

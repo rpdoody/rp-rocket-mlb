@@ -12,6 +12,11 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.top_nav import inject_app_style, render_top_nav
+
+inject_app_style()
+render_top_nav()
+
 from page_utils import (
     _MLB_TO_RETRO,
     READABLE_COLS,

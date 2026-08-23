@@ -24,6 +24,7 @@ from page_utils import (
     init_session_state,
 )
 
+from src.top_nav import inject_app_style, render_top_nav
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import (

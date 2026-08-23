@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import streamlit as st
 
 from page_utils import render_sidebar
+from src.top_nav import inject_app_style, render_top_nav
 
 render_sidebar(show_year_filter=False)
 

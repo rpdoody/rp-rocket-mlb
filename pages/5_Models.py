@@ -9,12 +9,14 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     READABLE_COLS,
     _load_precomputed,
     init_session_state,
     render_sidebar,
 )
+
 from retrosheet import MODERN_START, load_gameinfo, season_standings
 from src.evaluation.calibration import calibration_plot_data
 

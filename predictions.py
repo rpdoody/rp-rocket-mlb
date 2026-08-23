@@ -24,6 +24,7 @@ from page_utils import (
     _load_precomputed,
 )
 from src.ingestion.weather import fetch_forecast
+from src.top_nav import inject_app_style, render_top_nav
 
 ET = ZoneInfo("America/New_York")
 
@@ -122,28 +123,36 @@ def cached_precomputed():
     return _load_precomputed()
 
 
+from importlib import import_module
+
+
+_top_nav = import_module("top_nav")
+inject_app_style = _top_nav.inject_app_style
+render_top_nav = _top_nav.render_top_nav
+
 st.set_page_config(
     page_title="RP Rocket Report - MLB Predictions",
-    page_icon="",
+    page_icon="⚾",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
+
+inject_app_style()
 
 st.markdown(
     """
     <style>
     .stApp { background-color: #f9fafb; color: #111827; }
-    section[data-testid="stSidebar"] { background-color: #001f4d; }
-    section[data-testid="stSidebar"] * { color: #e5e7eb !important; }
     h1, h2, h3 { color: #002D72; }
     </style>
     """,
     unsafe_allow_html=True,
 )
 
-
 def home_page() -> None:
-    """Landing page: date-selectable contextual forecasts and betting cards."""
+    """Landing page for RP Rocket Report."""
+
+    render_top_nav()
 
     hdr_left, hdr_right = st.columns([1, 5])
 
@@ -176,7 +185,12 @@ def home_page() -> None:
             "H2H history · Rolling win-rate charts",
             "pages/4_Matchup_Analysis.py",
         ),
-        ("🤖", "Models", "XGBoost features · Evaluation · Savant research", "pages/5_Models.py"),
+        (
+            "🤖",
+            "Models",
+            "XGBoost features · Evaluation · Savant research",
+            "pages/5_Models.py",
+        ),
         (
             "📈",
             "Performance",
@@ -184,10 +198,18 @@ def home_page() -> None:
             "pages/6_Performance.py",
         ),
         ("🎯", "Pick 6", "Six-pick slate and card overview", "pages/7_Pick_6.py"),
+        (
+            "🎯",
+            "Betting Recommendations",
+            "All game recommendations",
+            "pages/9_Betting_Recommendations.py",
+        ),
         ("ℹ️", "About", "Methodology, data sources & tech stack", "pages/8_Info.py"),
     ]
-    for row_tiles in (tiles[:3], tiles[3:]):
+
+    for row_tiles in (tiles[:3], tiles[3:6], tiles[6:]):
         columns = st.columns(3)
+
         for column, (icon, title, description, path) in zip(columns, row_tiles):
             with column:
                 with st.container(border=True):
@@ -199,6 +221,7 @@ def home_page() -> None:
                     st.caption(description)
 
 
+# These must be outside home_page() — no indentation.
 pages = [
     st.Page(home_page, title="Home", icon="🏠", default=True),
     st.Page("pages/1_Today.py", title="Today", icon="📅"),
@@ -209,8 +232,12 @@ pages = [
     st.Page("pages/6_Performance.py", title="Performance", icon="📈"),
     st.Page("pages/7_Pick_6.py", title="Pick 6", icon="🎯"),
     st.Page("pages/8_Info.py", title="About", icon="ℹ️"),
-    st.Page("pages/9_Betting_Recommendations.py", title="Betting Recommendations", icon="🎯"),
+    st.Page(
+        "pages/9_Betting_Recommendations.py",
+        title="Betting Recommendations",
+        icon="🎯",
+    ),
 ]
 
-pg = st.navigation(pages)
+pg = st.navigation(pages, position="hidden")
 pg.run()

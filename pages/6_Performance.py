@@ -10,6 +10,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     _american_to_implied_prob,
     _kelly_fraction,
