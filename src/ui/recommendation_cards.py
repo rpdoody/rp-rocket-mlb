@@ -185,3 +185,24 @@ def _projection_summary(projection) -> str:
         f"· Park ×{adjustments.get('park_multiplier', 1.0):.2f} "
         f"· Weather ×{adjustments.get('weather_multiplier', 1.0):.2f}"
     )
+
+
+def _prob_bar_html(home_prob: float, home_team: str, away_team: str) -> str:
+    """Render a compact home/away win-probability bar for Streamlit HTML."""
+    home_prob = min(max(float(home_prob or 0.5), 0.0), 1.0)
+    away_prob = 1.0 - home_prob
+
+    return f"""
+    <div style="padding-top: 0.5rem;">
+      <div style="display: flex; justify-content: space-between;
+                  font-size: 0.9rem; margin-bottom: 0.25rem;">
+        <span>{_short(away_team)} <b>{away_prob:.0%}</b></span>
+        <span><b>{home_prob:.0%}</b> {_short(home_team)}</span>
+      </div>
+      <div style="display: flex; height: 10px; border-radius: 999px;
+                  overflow: hidden; background: #e5e7eb;">
+        <div style="width: {away_prob * 100:.1f}%; background: #64748b;"></div>
+        <div style="width: {home_prob * 100:.1f}%; background: #2563eb;"></div>
+      </div>
+    </div>
+    """
