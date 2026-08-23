@@ -9,6 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     _MLB_TO_RETRO,
     _fetch_espn_odds,
@@ -17,7 +18,6 @@ from page_utils import (
     _fetch_todays_schedule,
     _load_game_context_cache,
     init_session_state,
-    render_sidebar,
 )
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
@@ -28,6 +28,9 @@ from src.ui.recommendation_cards import (
     _rec_card_html,
     _short,
 )
+
+inject_app_style()
+render_top_nav()
 
 ET = ZoneInfo("America/New_York")
 
