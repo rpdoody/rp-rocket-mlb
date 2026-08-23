@@ -76,6 +76,83 @@ def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
     )
 
 
+def is_final_game(game: dict) -> bool:
+    return str(game.get("status", "")).strip().lower() in {
+        "final",
+        "game over",
+        "completed",
+    }
+
+
+def grade_recommendation(
+    market_key: str,
+    side: dict,
+    game: dict,
+) -> tuple[str, str]:
+    """Return (label, emoji) for a displayed recommendation."""
+
+    if not is_final_game(game):
+        return "PENDING", "⏳"
+
+    away_score = game.get("away_score")
+    home_score = game.get("home_score")
+
+    if away_score is None or home_score is None:
+        return "PENDING", "⏳"
+
+    away_score = float(away_score)
+    home_score = float(home_score)
+
+    if market_key == "ml":
+        picked_home = side["team"] == game.get("home_name")
+        won = home_score > away_score if picked_home else away_score > home_score
+        return ("WIN", "✅") if won else ("LOSS", "❌")
+
+    if market_key == "rl":
+        picked_home = side["team"] == game.get("home_name")
+        pick = str(side.get("pick", ""))
+
+        # Expected pick examples: "Yankees +1.5" or "Jays −1.5".
+        line = 1.5 if "+1.5" in pick else -1.5
+        adjusted_margin = (
+            (home_score - away_score + line) if picked_home else (away_score - home_score + line)
+        )
+
+        if adjusted_margin > 0:
+            return "WIN", "✅"
+        if adjusted_margin < 0:
+            return "LOSS", "❌"
+        return "PUSH", "↔️"
+
+    if market_key == "ou":
+        posted_total = float(side["line"])
+        final_total = away_score + home_score
+        pick = str(side.get("pick", "")).lower()
+
+        if pick.startswith("over"):
+            if final_total > posted_total:
+                return "WIN", "✅"
+            if final_total < posted_total:
+                return "LOSS", "❌"
+            return "PUSH", "↔️"
+
+        if final_total < posted_total:
+            return "WIN", "✅"
+        if final_total > posted_total:
+            return "LOSS", "❌"
+        return "PUSH", "↔️"
+
+    return "PENDING", "⏳"
+
+
+def empty_record() -> dict[str, int]:
+    return {"wins": 0, "losses": 0, "pushes": 0, "pending": 0}
+
+
+def record_text(record: dict[str, int]) -> str:
+    return f"{record['wins']}-{record['losses']}-{record['pushes']}"
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_todays_schedule(game_date_iso: str):
     game_date = datetime.date.fromisoformat(game_date_iso)
@@ -120,6 +197,8 @@ st.caption(
     "⛔ PASS = negative edge."
 )
 
+record_slot = st.empty()
+
 if not games_today:
     st.info(
         "No MLB games are scheduled today, or the MLB Stats API is unavailable. "
@@ -146,7 +225,11 @@ with st.spinner("Building contextual projections and comparing odds…"):
     standings = cached_standings()
     game_context = _load_game_context_cache()
     espn_odds = cached_espn_odds()
-
+daily_records = {
+    "ml": empty_record(),
+    "rl": empty_record(),
+    "ou": empty_record(),
+}
 status_labels = {
     "Final": "🏁 Final",
     "Game Over": "🏁 Final",
@@ -200,6 +283,28 @@ for idx, game in enumerate(games_today):
         None,
     )
     recs = _build_game_recs(game, espn_game, projection, standings)
+
+    for market_key in ("ml", "rl", "ou"):
+        if market_key not in recs:
+            continue
+
+        market = recs[market_key]
+        side = market[market["best"]]
+
+        # Count only actionable, positive-edge recommendations.
+        if side["edge"] <= 0:
+            continue
+
+        result, _ = grade_recommendation(market_key, side, game)
+
+        if result == "WIN":
+            daily_records[market_key]["wins"] += 1
+        elif result == "LOSS":
+            daily_records[market_key]["losses"] += 1
+        elif result == "PUSH":
+            daily_records[market_key]["pushes"] += 1
+        else:
+            daily_records[market_key]["pending"] += 1
     home_prob = projection.home_win_probability
 
     with st.container(border=True):
@@ -259,6 +364,12 @@ for idx, game in enumerate(games_today):
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
 
+                if side["edge"] <= 0:
+                    st.caption("⛔ No official recommendation to grade.")
+                else:
+                    result, emoji = grade_recommendation("ml", side, game)
+                    st.caption(f"{emoji} Result: **{result}**")
+
         with col_rl:
             st.markdown("##### 📏 Run Line (±1.5)")
 
@@ -278,6 +389,11 @@ for idx, game in enumerate(games_today):
                     f"Other side: {other['pick']} {other['odds_str']} "
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
+                if side["edge"] <= 0:
+                    st.caption("⛔ No official recommendation to grade.")
+                else:
+                    result, emoji = grade_recommendation("rl", side, game)
+                    st.caption(f"{emoji} Result: **{result}**")
 
         with col_ou:
             st.markdown("##### 📊 Over/Under")
@@ -302,3 +418,34 @@ for idx, game in enumerate(games_today):
                     f"Other side: {other['pick']} {other['odds_str']} "
                     f"(edge {other['edge'] * 100:+.1f}%)"
                 )
+
+                if side["edge"] <= 0:
+                    st.caption("⛔ No official recommendation to grade.")
+                else:
+                    result, emoji = grade_recommendation("ou", side, game)
+                    st.caption(f"{emoji} Result: **{result}**")
+
+with record_slot.container():
+    st.markdown("### 📊 Today’s Record")
+    ml_record, rl_record, ou_record = st.columns(3)
+
+    ml_record.metric(
+        "💵 Moneyline",
+        record_text(daily_records["ml"]),
+        delta=f"{daily_records['ml']['pending']} pending",
+        delta_color="off",
+    )
+    rl_record.metric(
+        "📏 Run Line",
+        record_text(daily_records["rl"]),
+        delta=f"{daily_records['rl']['pending']} pending",
+        delta_color="off",
+    )
+    ou_record.metric(
+        "📊 Over/Under",
+        record_text(daily_records["ou"]),
+        delta=f"{daily_records['ou']['pending']} pending",
+        delta_color="off",
+    )
+
+    st.caption("Record format: W-L-P. Only positive-edge recommendations are included.")
