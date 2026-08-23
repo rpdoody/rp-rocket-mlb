@@ -183,7 +183,7 @@ def record_text(record: dict[str, int]) -> str:
     return f"{record['wins']}-{record['losses']}-{record['pushes']}"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cached_todays_schedule(game_date_iso: str):
     game_date = datetime.date.fromisoformat(game_date_iso)
 
@@ -227,6 +227,9 @@ st.caption(
 )
 
 record_slot = st.empty()
+if st.button("↻ Refresh final scores", key="refresh_scores"):
+    cached_todays_schedule.clear()
+    st.rerun()
 
 if not games_today:
     st.info(
