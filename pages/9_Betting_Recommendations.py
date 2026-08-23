@@ -214,7 +214,6 @@ def cached_weather(venue_name: str, game_date_iso: str):
 
 
 init_session_state()
-render_sidebar(show_year_filter=False)
 
 today_et = eastern_today()
 games_today = cached_todays_schedule(today_et.isoformat())
