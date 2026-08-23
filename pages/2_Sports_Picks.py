@@ -34,7 +34,11 @@ from src.ui.recommendation_cards import (
     _short,
 )
 
+inject_app_style()
+render_top_nav()
+
 ET = ZoneInfo("America/New_York")
+
 QUALIFYING_EDGE = 0.03
 
 
