@@ -14,13 +14,18 @@ from page_utils import (
     READABLE_COLS,
     _load_precomputed,
     init_session_state,
-    render_sidebar,
 )
 
 from retrosheet import MODERN_START, load_gameinfo, season_standings
 from src.evaluation.calibration import calibration_plot_data
 
-min_year, max_year = render_sidebar()
+inject_app_style()
+render_top_nav()
+
+init_session_state()
+
+min_year = 2020
+max_year = datetime.datetime.now().year
 
 _pre = _load_precomputed()
 
