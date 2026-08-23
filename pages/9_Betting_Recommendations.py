@@ -122,15 +122,24 @@ def grade_recommendation(
 
         return ("WIN", "✅") if won else ("LOSS", "❌")
 
-    if market_key == "rl":
+        if market_key == "rl":
         pick = str(side.get("pick", ""))
         pick_lower = pick.lower()
         home_name = str(game.get("home_name", "")).lower()
         away_name = str(game.get("away_name", "")).lower()
 
-        if home_name and home_name in pick_lower:
+        home_short = home_name.split()[-1] if home_name else ""
+        away_short = away_name.split()[-1] if away_name else ""
+
+        if (
+            (home_name and home_name in pick_lower)
+            or (home_short and home_short in pick_lower)
+        ):
             picked_home = True
-        elif away_name and away_name in pick_lower:
+        elif (
+            (away_name and away_name in pick_lower)
+            or (away_short and away_short in pick_lower)
+        ):
             picked_home = False
         else:
             return "PENDING", "⏳"
@@ -143,7 +152,9 @@ def grade_recommendation(
             return "PENDING", "⏳"
 
         adjusted_margin = (
-            home_score - away_score + line if picked_home else away_score - home_score + line
+            home_score - away_score + line
+            if picked_home
+            else away_score - home_score + line
         )
 
         if adjusted_margin > 0:
@@ -151,7 +162,6 @@ def grade_recommendation(
         if adjusted_margin < 0:
             return "LOSS", "❌"
         return "PUSH", "↔️"
-
     if market_key == "ou":
         if posted_total is None:
             return "PENDING", "⏳"
