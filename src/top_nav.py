@@ -1,8 +1,22 @@
 import streamlit as st
 
 
+NAV_ITEMS = [
+    ("🏠 Home", "pages/0_Home.py"),
+    ("📅 Today", "pages/1_Today.py"),
+    ("⚾ Sports Picks", "pages/2_Sports_Picks.py"),
+    ("📊 Stats", "pages/3_Stats.py"),
+    ("🆚 Matchups", "pages/4_Matchup_Analysis.py"),
+    ("🤖 Models", "pages/5_Models.py"),
+    ("📈 Performance", "pages/6_Performance.py"),
+    ("🎯 Pick 6", "pages/7_Pick_6.py"),
+    ("🎯 Betting", "pages/9_Betting_Recommendations.py"),
+    ("ℹ️ About", "pages/8_Info.py"),
+]
+
+
 def inject_app_style() -> None:
-    """Apply shared styling and hide Streamlit's native navigation UI."""
+    """Apply shared styling and hide Streamlit's default navigation."""
     st.markdown(
         """
         <style>
@@ -27,7 +41,6 @@ def inject_app_style() -> None:
             font-size: 0.78rem;
             font-weight: 650;
             justify-content: center;
-            line-height: 1.15;
             min-height: 42px;
             padding: 8px 5px;
             text-align: center;
@@ -45,12 +58,12 @@ def inject_app_style() -> None:
     )
 
 
-def render_top_nav(pages: list[st.Page]) -> None:
-    """Render page links from the registered Streamlit Page objects."""
-    columns = st.columns(len(pages), gap="small")
+def render_top_nav() -> None:
+    """Render the same page navigation bar at the top of every page."""
+    columns = st.columns(len(NAV_ITEMS), gap="small")
 
-    for column, page in zip(columns, pages):
+    for column, (label, page_path) in zip(columns, NAV_ITEMS):
         with column:
-            st.page_link(page, label=f"{page.icon} {page.title}")
+            st.page_link(page_path, label=label)
 
     st.divider()

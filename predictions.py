@@ -1,9 +1,9 @@
 """
-Entry point for the Rocket Report MLB dashboard.
+Entry point for the RP Rocket Report MLB dashboard.
 
-  - st.set_page_config()  called exactly once here
-  - home_page()           landing page with per-game betting recommendations
-  - st.navigation()       6-page top navigation (mobile-friendly)
+- Configures the Streamlit app once.
+- Registers file-backed application pages.
+- Uses hidden native navigation and a shared top navigation component.
 """
 
 import datetime
@@ -24,7 +24,7 @@ from page_utils import (
     _load_precomputed,
 )
 from src.ingestion.weather import fetch_forecast
-from src.top_nav import inject_app_style, render_top_nav
+from src.top_nav import inject_app_style
 
 ET = ZoneInfo("America/New_York")
 
@@ -142,81 +142,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-def home_page(pages: list[st.Page]) -> None:
-    """Landing page for RP Rocket Report."""
-
-    render_top_nav(pages)
-
-    hdr_left, hdr_right = st.columns([1, 5])
-
-    with hdr_left:
-        logo = ROOT / "data_files" / "IMG_0185.PNG"
-        if logo.exists():
-            st.image(str(logo), width=180)
-
-    with hdr_right:
-        st.markdown(
-            "<h1 style='margin-bottom:0;color:#002D72'>RP Rocket Report</h1>"
-            "<p style='color:#6b7280;margin-top:2px'>MLB Predictions</p>",
-            unsafe_allow_html=True,
-        )
-
-    st.markdown(
-        "Explore today’s schedule, model projections, matchup research, "
-        "performance tracking, and qualifying Sports Picks."
-    )
-    st.markdown("---")
-    st.markdown("### Explore")
-
-    tiles = [
-        ("📅", "Today", "Full schedule with detailed game drill-down", "pages/1_Today.py"),
-        ("⚾", "Sports Picks", "Today’s qualifying MLB bets", "pages/2_Sports_Picks.py"),
-        ("📊", "Stats", "Standings · Batting · Pitching · Leaders", "pages/3_Stats.py"),
-        (
-            "🆚",
-            "Matchup Analysis",
-            "H2H history · Rolling win-rate charts",
-            "pages/4_Matchup_Analysis.py",
-        ),
-        (
-            "🤖",
-            "Models",
-            "XGBoost features · Evaluation · Savant research",
-            "pages/5_Models.py",
-        ),
-        (
-            "📈",
-            "Performance",
-            "Pick history · Model P&L · Kelly bankroll",
-            "pages/6_Performance.py",
-        ),
-        ("🎯", "Pick 6", "Six-pick slate and card overview", "pages/7_Pick_6.py"),
-        (
-            "🎯",
-            "Betting Recommendations",
-            "All game recommendations",
-            "pages/9_Betting_Recommendations.py",
-        ),
-        ("ℹ️", "About", "Methodology, data sources & tech stack", "pages/8_Info.py"),
-    ]
-
-    for row_tiles in (tiles[:3], tiles[3:6], tiles[6:]):
-        columns = st.columns(3)
-
-        for column, (icon, title, description, path) in zip(columns, row_tiles):
-            with column:
-                with st.container(border=True):
-                    st.markdown(
-                        f'<div style="text-align:center;font-size:1.8rem;padding-top:4px">{icon}</div>',
-                        unsafe_allow_html=True,
-                    )
-                    st.page_link(path, label=f"**{title}**")
-                    st.caption(description)
-
-
-# These must be outside home_page() — no indentation.
 pages = [
-    st.Page(home_page, title="Home", icon="🏠", default=True),
+    st.Page("pages/0_Home.py", title="Home", icon="🏠", default=True),
     st.Page("pages/1_Today.py", title="Today", icon="📅"),
     st.Page("pages/2_Sports_Picks.py", title="Sports Picks", icon="⚾"),
     st.Page("pages/3_Stats.py", title="Stats", icon="📊"),
