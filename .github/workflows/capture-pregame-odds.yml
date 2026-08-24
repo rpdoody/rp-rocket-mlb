@@ -3,10 +3,12 @@ name: Capture pregame MLB odds
 on:
   workflow_dispatch:
   schedule:
-    # 15 runs per Eastern game day, 11:07 AM–1:07 AM during EDT.
-    # GitHub Actions evaluates cron in UTC.
-    - cron: "7 15-23 * 4-10 *"
-    - cron: "7 0-5 * 4-10 *"
+    # Five snapshots daily during EDT:
+    # 11:07 AM, 2:07 PM, 5:07 PM, 8:07 PM, and 11:07 PM Eastern.
+    # Each run requests 3 markets × 1 US region ≈ 3 credits.
+    # Estimated maximum: 5 × 3 × 30 = 450 credits/month.
+    - cron: "7 15,18,21 * 4-10 *"
+    - cron: "7 0,3 * 4-10 *"
 
 permissions:
   contents: write
@@ -45,7 +47,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add data_files/processed/pregame_odds_snapshots.parquet
+          git add \
+            data_files/processed/pregame_odds_snapshots.parquet \
+            data_files/processed/odds_api_quota.json
 
           if git diff --cached --quiet; then
             echo "No new odds data to commit."
