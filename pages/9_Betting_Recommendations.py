@@ -18,6 +18,7 @@ from page_utils import (
     _fetch_todays_schedule,
     _load_game_context_cache,
     init_session_state,
+    render_selected_date_record,
 )
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
@@ -231,7 +232,11 @@ selected_date = st.date_input(
     key="betting_recommendations_date",
 )
 
+render_selected_date_record(selected_date)
+st.divider()
+
 games_today = cached_todays_schedule(selected_date.isoformat())
+
 st.caption(
     "Contextual run projections include historical offense/defense, probable "
     "starters, bullpen workload proxy, park factor, weather, day/night context, "
@@ -468,7 +473,7 @@ for idx, game in enumerate(games_today):
                     st.caption(f"{emoji} Result: **{result}**")
 
 with record_slot.container():
-    st.markdown("### 📊 Today’s Record")
+    st.markdown("### 📊 Current Page Recommendation Status")
     ml_record, rl_record, ou_record = st.columns(3)
 
     ml_record.metric(
@@ -490,4 +495,7 @@ with record_slot.container():
         delta_color="off",
     )
 
-    st.caption("Record format: W-L-P. Only positive-edge recommendations are included.")
+    st.caption(
+    "Record format: W-L-P. This reflects recommendations currently calculated "
+    "on this page; use Live Model Record above for saved pregame pick history."
+)
