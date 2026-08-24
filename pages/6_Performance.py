@@ -171,7 +171,113 @@ def build_history_dataframe(
     ).reset_index(drop=True)
 
 
-history_df = build_history_dataframe(backtests)
+def load_live_pick_history() -> pd.DataFrame:
+    """Load the current-season captured pick ledger, if it exists."""
+
+    ledger_path = (
+        Path(__file__).parent.parent
+        / "data_files"
+        / "processed"
+        / f"pick_history_{datetime.date.today().year}.parquet"
+    )
+
+    if not ledger_path.exists() or ledger_path.stat().st_size == 0:
+        return pd.DataFrame()
+
+    try:
+        live_history = pd.read_parquet(ledger_path).copy()
+
+        if live_history.empty:
+            return pd.DataFrame()
+
+        required_columns = [
+            "model",
+            "date",
+            "game_id",
+            "pick_type",
+            "confidence",
+            "predicted_prob",
+            "edge",
+            "american_odds",
+            "result",
+            "profit_units",
+        ]
+
+        live_history["model"] = "Live Model"
+
+        live_history["date"] = pd.to_datetime(
+            live_history["game_date"]
+            if "game_date" in live_history.columns
+            else pd.Series(pd.NaT, index=live_history.index),
+            errors="coerce",
+        )
+
+        live_history["pick_type"] = (
+            live_history["market"]
+            if "market" in live_history.columns
+            else pd.Series("—", index=live_history.index)
+        ).map(readable_pick_type)
+
+        live_history["confidence"] = (
+            live_history["confidence"]
+            if "confidence" in live_history.columns
+            else pd.Series("LOW", index=live_history.index)
+        ).map(title_case)
+
+        live_history["result"] = (
+            live_history["result"]
+            if "result" in live_history.columns
+            else pd.Series("pending", index=live_history.index)
+        ).map(normalize_result)
+
+        live_history["profit_units"] = pd.to_numeric(
+            live_history["profit_units"]
+            if "profit_units" in live_history.columns
+            else pd.Series(0.0, index=live_history.index),
+            errors="coerce",
+        ).fillna(0.0)
+
+        live_history["predicted_prob"] = pd.to_numeric(
+            live_history["predicted_prob"]
+            if "predicted_prob" in live_history.columns
+            else pd.Series(pd.NA, index=live_history.index),
+            errors="coerce",
+        )
+
+        live_history["edge"] = pd.to_numeric(
+            live_history["edge"]
+            if "edge" in live_history.columns
+            else pd.Series(pd.NA, index=live_history.index),
+            errors="coerce",
+        )
+
+        live_history["american_odds"] = pd.to_numeric(
+            live_history["american_odds"]
+            if "american_odds" in live_history.columns
+            else pd.Series(pd.NA, index=live_history.index),
+            errors="coerce",
+        )
+
+        if "game_id" not in live_history.columns:
+            live_history["game_id"] = pd.NA
+
+        return live_history[required_columns].dropna(
+            subset=["date"]
+        ).copy()
+
+    except Exception as exc:
+        st.warning(f"Could not load live pick history: {exc}")
+        return pd.DataFrame()
+
+
+backtest_history = build_history_dataframe(backtests)
+live_history = load_live_pick_history()
+
+history_df = pd.concat(
+    [backtest_history, live_history],
+    ignore_index=True,
+    sort=False,
+)
 
 
 # ── Pick History ──────────────────────────────────────────────────────────────
@@ -738,9 +844,10 @@ with tab_bankroll:
     with simulation_column:
         st.markdown("#### Historical Bankroll Simulation")
 
-        if not backtests or history_df.empty:
+        if history_df.empty:
             st.info(
-                "No backtest data is available for a bankroll simulation."
+            st.info(
+                "No settled pick history is available for a bankroll simulation."
             )
         else:
             model_names = sorted(history_df["model"].unique().tolist())
