@@ -21,10 +21,10 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install updater dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install pandas pyarrow MLB-StatsAPI
 
       - name: Fetch completed MLB games
         run: python scripts/fetch_live_gameinfo.py
