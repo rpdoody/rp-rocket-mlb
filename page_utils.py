@@ -880,6 +880,97 @@ def _estimate_win_prob(home_full: str, away_full: str, live_standings: dict[str,
     difference = pct(home_full) - pct(away_full) + 0.04
     return max(0.10, min(0.90, 1.0 / (1.0 + math.exp(-difference * 8))))
 
+@st.cache_data(show_spinner=False, ttl=300)
+def load_live_pick_history(season: int | None = None) -> pd.DataFrame:
+    """Load saved Live Model picks for one season, if available."""
+    target_season = season or datetime.datetime.now(ET).year
+    ledger_path = PROCESSED / f"pick_history_{target_season}.parquet"
+
+    if not ledger_path.exists() or ledger_path.stat().st_size == 0:
+        return pd.DataFrame()
+
+    try:
+        ledger = pd.read_parquet(ledger_path).copy()
+
+        if ledger.empty or "game_date" not in ledger.columns:
+            return pd.DataFrame()
+
+        ledger["game_date"] = pd.to_datetime(
+            ledger["game_date"],
+            errors="coerce",
+        ).dt.date
+
+        if "result" not in ledger.columns:
+            ledger["result"] = "pending"
+
+        ledger["result"] = (
+            ledger["result"]
+            .fillna("pending")
+            .astype(str)
+            .str.strip()
+            .str.lower()
+        )
+
+        if "profit_units" not in ledger.columns:
+            ledger["profit_units"] = 0.0
+
+        ledger["profit_units"] = pd.to_numeric(
+            ledger["profit_units"],
+            errors="coerce",
+        ).fillna(0.0)
+
+        return ledger.dropna(subset=["game_date"]).copy()
+
+    except Exception as exc:
+        print(f"Live pick-history load failed: {exc}")
+        return pd.DataFrame()
+
+
+def render_selected_date_record(selected_date: datetime.date) -> None:
+    """Render the Live Model record for the selected Eastern game date."""
+    ledger = load_live_pick_history(selected_date.year)
+
+    st.markdown("#### Live Model Record")
+
+    if ledger.empty:
+        st.caption("No saved Live Model pick history is available yet.")
+        return
+
+    date_rows = ledger[ledger["game_date"] == selected_date].copy()
+
+    if date_rows.empty:
+        st.caption(
+            f"No captured Live Model picks for "
+            f"{selected_date.strftime('%B %d, %Y')}."
+        )
+        return
+
+    settled = date_rows[
+        date_rows["result"].isin(["win", "loss", "push"])
+    ].copy()
+
+    wins = int((settled["result"] == "win").sum())
+    losses = int((settled["result"] == "loss").sum())
+    pushes = int((settled["result"] == "push").sum())
+    pending = int((date_rows["result"] == "pending").sum())
+
+    total_units = float(date_rows["profit_units"].sum())
+    win_rate = wins / (wins + losses) if wins + losses else None
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Record", f"{wins}–{losses}–{pushes}")
+    c2.metric("Units", f"{total_units:+.2f}")
+    c3.metric(
+        "Win Rate",
+        f"{win_rate:.1%}" if win_rate is not None else "—",
+    )
+    c4.metric("Pending", pending)
+
+    st.caption(
+        f"{len(date_rows)} captured pick"
+        f"{'s' if len(date_rows) != 1 else ''} for "
+        f"{selected_date.strftime('%B %d, %Y')}."
+    )
 
 # ─── HTML Components ──────────────────────────────────────────────────────────
 

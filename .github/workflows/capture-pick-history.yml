@@ -1,1 +1,11 @@
+name: Capture Pick History
 
+on:
+  workflow_dispatch:
+
+jobs:
+  capture-pick-history:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Capture pick history
+        run: echo "Pick history capture workflow is ready."
