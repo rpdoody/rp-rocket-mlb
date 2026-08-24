@@ -42,7 +42,7 @@ jobs:
       - name: Grade completed picks
         run: python scripts/grade_pick_history.py
 
-      - name: Commit graded ledger
+      - name: Commit and push graded ledger
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -51,12 +51,17 @@ jobs:
             data_files/processed/live_gameinfo_2026.parquet \
             data_files/processed/pick_history_2026.parquet
 
-          git diff --cached --quiet || \
-            git commit -m "Grade MLB pick history"
+          if git diff --cached --quiet; then
+            echo "No grading changes to commit."
+            exit 0
+          fi
 
-          git push
+          git commit -m "Grade MLB pick history"
+          git pull --rebase origin main
+          git push origin HEAD:main
 
   capture-picks:
+    needs: grade-picks
     if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 16 * * *'
     runs-on: ubuntu-latest
 
@@ -77,14 +82,18 @@ jobs:
       - name: Capture pregame picks and prices
         run: python scripts/capture_pick_history.py
 
-      - name: Commit captured ledger
+      - name: Commit and push captured ledger
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           git add data_files/processed/pick_history_2026.parquet
 
-          git diff --cached --quiet || \
-            git commit -m "Capture MLB pregame picks"
+          if git diff --cached --quiet; then
+            echo "No qualifying picks or ledger changes to commit."
+            exit 0
+          fi
 
-          git push
+          git commit -m "Capture MLB pregame picks"
+          git pull --rebase origin main
+          git push origin HEAD:main
