@@ -1,4 +1,4 @@
-"""Capture qualifying MLB model picks with pregame odds into a durable ledger."""
+"""Capture qualifying pregame model recommendations into a pick-history ledger."""
 
 from __future__ import annotations
 
@@ -25,16 +25,24 @@ from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import _build_game_recs
 
 ET = ZoneInfo("America/New_York")
-SEASON = 2026
 MIN_EDGE = 0.03
-OUTPUT_PATH = ROOT / "data_files" / "processed" / f"pick_history_{SEASON}.parquet"
 
 
-def eastern_today() -> datetime.date:
-    return datetime.datetime.now(ET).date()
+def current_season() -> int:
+    return datetime.datetime.now(ET).year
+
+
+def output_path() -> Path:
+    return (
+        ROOT
+        / "data_files"
+        / "processed"
+        / f"pick_history_{current_season()}.parquet"
+    )
 
 
 def normalize_team_name(team_name: str | None) -> str:
+    """Normalize team labels for schedule/odds matching."""
     return "".join(
         character.lower()
         for character in (team_name or "")
@@ -42,19 +50,59 @@ def normalize_team_name(team_name: str | None) -> str:
     )
 
 
-def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
-    return (
-        normalize_team_name(game.get("away_name"))
-        == normalize_team_name(odds_game.get("away_team"))
-        and normalize_team_name(game.get("home_name"))
-        == normalize_team_name(odds_game.get("home_team"))
-    )
+def find_espn_game(game: dict, espn_games: list[dict]) -> dict | None:
+    """Match a StatsAPI schedule game to its ESPN odds event."""
+    away_name = normalize_team_name(game.get("away_name"))
+    home_name = normalize_team_name(game.get("home_name"))
+
+    for espn_game in espn_games:
+        if (
+            normalize_team_name(espn_game.get("away_team")) == away_name
+            and normalize_team_name(espn_game.get("home_team")) == home_name
+        ):
+            return espn_game
+
+    return None
 
 
-def is_pregame_game(game: dict) -> bool:
+def parse_american_odds(raw_value: object) -> int | None:
+    """Parse a signed American odds value without inventing a missing price."""
+    try:
+        value = str(raw_value).strip().replace("+", "")
+
+        if value.lower() in {"", "—", "none", "nan"}:
+            return None
+
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def game_date_eastern(game: dict, fallback_date: datetime.date) -> str:
+    """Return the game date in Eastern time for ledger grouping."""
+    raw_datetime = game.get("game_datetime", "")
+
+    if not raw_datetime:
+        return fallback_date.isoformat()
+
+    try:
+        parsed = datetime.datetime.fromisoformat(
+            raw_datetime.replace("Z", "+00:00")
+        )
+
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=datetime.timezone.utc)
+
+        return parsed.astimezone(ET).date().isoformat()
+    except (TypeError, ValueError):
+        return fallback_date.isoformat()
+
+
+def game_is_pregame(game: dict) -> bool:
+    """Avoid recording picks after a game has begun or ended."""
     status = str(game.get("status", "")).strip().lower()
 
-    return status not in {
+    excluded_statuses = {
         "final",
         "game over",
         "completed",
@@ -65,44 +113,17 @@ def is_pregame_game(game: dict) -> bool:
         "suspended",
     }
 
-
-def game_date_from_datetime(
-    game_datetime: str,
-    fallback_date: datetime.date,
-) -> str:
-    if not game_datetime:
-        return fallback_date.isoformat()
-
-    try:
-        game_time = datetime.datetime.fromisoformat(
-            game_datetime.replace("Z", "+00:00")
-        )
-
-        if game_time.tzinfo is None:
-            game_time = game_time.replace(
-                tzinfo=datetime.timezone.utc
-            )
-
-        return game_time.astimezone(ET).date().isoformat()
-    except (TypeError, ValueError):
-        return fallback_date.isoformat()
+    return status not in excluded_statuses
 
 
-def parse_american_odds(odds_text: object) -> int | None:
-    try:
-        value = str(odds_text).strip().replace("+", "")
-        if value.lower() in {"", "none", "nan", "—"}:
-            return None
-        return int(float(value))
-    except (TypeError, ValueError):
-        return None
-
-
-def confidence_from_edge(edge: float) -> str:
+def confidence_tier(edge: float) -> str:
+    """Use the app's recommendation thresholds for ledger confidence."""
     if edge > 0.06:
         return "HIGH"
+
     if edge > 0.03:
         return "MEDIUM"
+
     return "LOW"
 
 
@@ -111,85 +132,94 @@ def kelly_fraction(
     american_odds: int,
     confidence: str,
 ) -> float:
-    if american_odds >= 0:
-        decimal_payout = american_odds / 100.0
-    else:
-        decimal_payout = 100.0 / abs(american_odds)
+    """Return confidence-scaled Kelly fraction, capped at a conservative 5%."""
+    decimal_profit = (
+        american_odds / 100.0
+        if american_odds > 0
+        else 100.0 / abs(american_odds)
+    )
+
+    if decimal_profit <= 0:
+        return 0.0
 
     full_kelly = max(
         (
-            decimal_payout * probability
+            decimal_profit * probability
             - (1.0 - probability)
         )
-        / decimal_payout,
+        / decimal_profit,
         0.0,
     )
 
-    confidence_multiplier = {
+    fractions = {
         "HIGH": 0.50,
         "MEDIUM": 0.25,
         "LOW": 0.125,
     }
 
-    return full_kelly * confidence_multiplier[confidence]
+    return min(full_kelly * fractions[confidence], 0.05)
 
 
-def load_existing() -> pd.DataFrame:
-    if not OUTPUT_PATH.exists() or OUTPUT_PATH.stat().st_size == 0:
+def load_existing_ledger() -> pd.DataFrame:
+    """Read the existing current-season ledger, if available."""
+    path = output_path()
+
+    if not path.exists() or path.stat().st_size == 0:
         return pd.DataFrame()
 
     try:
-        return pd.read_parquet(OUTPUT_PATH)
+        return pd.read_parquet(path)
     except Exception as exc:
-        print(f"Warning: could not read existing ledger: {exc}")
+        print(f"Could not read existing pick-history ledger: {exc}")
         return pd.DataFrame()
 
 
-def build_pick_row(
+def build_ledger_row(
     game: dict,
-    market_key: str,
+    market_name: str,
     market: dict,
-    side: dict,
-    capture_time: datetime.datetime,
-    fallback_date: datetime.date,
+    captured_at: datetime.datetime,
+    capture_date: datetime.date,
 ) -> dict | None:
-    american_odds = parse_american_odds(side.get("odds_str"))
+    """Convert the best recommendation in one market into a ledger row."""
+    best_side_name = market.get("best")
 
-    if american_odds is None:
+    if best_side_name not in market:
         return None
 
+    side = market[best_side_name]
     edge = float(side.get("edge", 0.0))
 
     if edge <= MIN_EDGE:
         return None
 
-    confidence = confidence_from_edge(edge)
+    american_odds = parse_american_odds(side.get("odds_str"))
 
-    if market_key == "ml":
-        pick = str(side.get("team") or side.get("pick") or "")
+    if american_odds is None:
+        return None
+
+    if market_name == "ml":
+        pick = str(side.get("team", "")).strip()
     else:
-        pick = str(side.get("pick") or side.get("team") or "")
+        pick = str(side.get("pick", "")).strip()
 
     game_id = game.get("game_id")
 
     if not game_id or not pick:
         return None
 
-    game_date = game_date_from_datetime(
-        game.get("game_datetime", ""),
-        fallback_date,
-    )
+    confidence = confidence_tier(edge)
 
     return {
-        "ledger_key": f"{game_id}_{market_key}",
+        "ledger_key": f"{game_id}_{market_name}",
         "game_id": int(game_id),
-        "season": SEASON,
-        "game_date": game_date,
+        "season": current_season(),
+        "game_date": game_date_eastern(game, capture_date),
         "game_datetime": game.get("game_datetime", ""),
-        "captured_at_utc": capture_time.isoformat(),
+        "captured_at_utc": captured_at.isoformat(),
         "away_team": game.get("away_name", ""),
         "home_team": game.get("home_name", ""),
-        "market": market_key,
+        "market": market_name,
         "pick": pick,
         "american_odds": american_odds,
         "predicted_prob": float(side.get("est_prob", 0.0)),
@@ -202,13 +232,13 @@ def build_pick_row(
             confidence=confidence,
         ),
         "posted_total": (
-            float(market.get("posted"))
-            if market_key == "ou" and market.get("posted") is not None
+            float(market["posted"])
+            if market_name == "ou" and market.get("posted") is not None
             else None
         ),
         "expected_total": (
-            float(market.get("exp_total"))
-            if market_key == "ou" and market.get("exp_total") is not None
+            float(market["exp_total"])
+            if market_name == "ou" and market.get("exp_total") is not None
             else None
         ),
         "result": "pending",
@@ -219,65 +249,51 @@ def build_pick_row(
 
 
 def main() -> None:
-    capture_date = eastern_today()
-    capture_time = datetime.datetime.now(datetime.timezone.utc)
+    capture_date = datetime.datetime.now(ET).date()
+    captured_at = datetime.datetime.now(datetime.timezone.utc)
 
-    try:
-        schedule = _fetch_todays_schedule(capture_date)
-    except TypeError:
-        schedule = _fetch_todays_schedule()
-
-    odds_events = _fetch_espn_odds(capture_date)
+    schedule = _fetch_todays_schedule(capture_date)
+    odds_games = _fetch_espn_odds(capture_date)
 
     if not schedule:
-        print(f"No MLB schedule available for {capture_date}.")
+        print(f"No MLB schedule found for {capture_date.isoformat()}.")
         return
 
-    if not odds_events:
-        print(f"No ESPN odds events available for {capture_date}.")
+    if not odds_games:
+        print(f"No ESPN odds found for {capture_date.isoformat()}.")
         return
 
-    standings = _fetch_team_standings()
+    historical_standings = _fetch_team_standings()
     game_context = _load_game_context_cache()
 
-    rows: list[dict] = []
+    new_rows: list[dict] = []
 
     for game in schedule:
-        if not is_pregame_game(game):
+        if not game_is_pregame(game):
             continue
 
-        odds_game = next(
-            (
-                odds
-                for odds in odds_events
-                if is_matching_odds_game(game, odds)
-            ),
-            None,
-        )
+        espn_game = find_espn_game(game, odds_games)
 
-        if odds_game is None:
+        if not espn_game:
             continue
 
         away_team = game.get("away_name", "")
         home_team = game.get("home_name", "")
-        away_pitcher = game.get("away_probable_pitcher", "TBD") or "TBD"
-        home_pitcher = game.get("home_probable_pitcher", "TBD") or "TBD"
+        away_pitcher = game.get("away_probable_pitcher") or "TBD"
+        home_pitcher = game.get("home_probable_pitcher") or "TBD"
+
+        game_date = game_date_eastern(game, capture_date)
         venue = game.get("venue_name", "")
 
-        game_date = game_date_from_datetime(
-            game.get("game_datetime", ""),
-            capture_date,
-        )
-
-        weather = (
-            fetch_forecast(venue, game_date)
-            if venue
-            else None
-        )
+        try:
+            weather = fetch_forecast(venue, game_date) if venue else None
+        except Exception as exc:
+            print(f"Weather unavailable for {away_team} at {home_team}: {exc}")
+            weather = None
 
         projection = project_contextual_game(
             game=game,
-            hist_stnd=standings,
+            hist_stnd=historical_standings,
             game_context=game_context,
             away_retro=_MLB_TO_RETRO.get(away_team, away_team),
             home_retro=_MLB_TO_RETRO.get(home_team, home_team),
@@ -286,41 +302,39 @@ def main() -> None:
             weather=weather,
         )
 
-        recommendations = _build_game_recs(
+        recs = _build_game_recs(
             game=game,
-            espn_game=odds_game,
+            espn_game=espn_game,
             projection=projection,
-            historical_data=standings,
+            historical_data=historical_standings,
         )
 
-        for market_key in ("ml", "rl", "ou"):
-            if market_key not in recommendations:
+        for market_name in ("ml", "rl", "ou"):
+            market = recs.get(market_name)
+
+            if not market:
                 continue
 
-            market = recommendations[market_key]
-            side = market[market["best"]]
-
-            row = build_pick_row(
+            row = build_ledger_row(
                 game=game,
-                market_key=market_key,
+                market_name=market_name,
                 market=market,
-                side=side,
-                capture_time=capture_time,
-                fallback_date=capture_date,
+                captured_at=captured_at,
+                capture_date=capture_date,
             )
 
             if row is not None:
-                rows.append(row)
+                new_rows.append(row)
 
-    if not rows:
+    if not new_rows:
         print(
-            "No qualifying picks were captured. "
-            f"Minimum edge is {MIN_EDGE:.0%}."
+            f"No qualifying picks captured for {capture_date.isoformat()}. "
+            f"Threshold: edge > {MIN_EDGE:.1%}."
         )
         return
 
-    fresh = pd.DataFrame(rows)
-    existing = load_existing()
+    existing = load_existing_ledger()
+    fresh = pd.DataFrame(new_rows)
 
     combined = pd.concat(
         [existing, fresh],
@@ -335,315 +349,13 @@ def main() -> None:
         .reset_index(drop=True)
     )
 
-    OUTPUT_PATH.parent.mkdir(parents=True, exist_ok=True)
-    combined.to_parquet(OUTPUT_PATH, index=False)
+    path = output_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    combined.to_parquet(path, index=False)
 
-    print(f"Wrote: {OUTPUT_PATH}")
-    print(f"Total ledger picks: {len(combined):,}")
+    print(f"Saved ledger: {path}")
     print(f"New qualifying picks: {len(fresh):,}")
-
-
-if __name__ == "__main__":
-    main()
-2. Grade pending picks
-Create:
-
-text
-scripts/grade_pick_history.py
-Paste:
-
-python
-"""Grade pending pick-history rows using final live MLB game results."""
-
-from __future__ import annotations
-
-import datetime
-import sys
-from pathlib import Path
-
-import pandas as pd
-
-ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-
-SEASON = 2026
-LEDGER_PATH = ROOT / "data_files" / "processed" / f"pick_history_{SEASON}.parquet"
-RESULTS_PATH = ROOT / "data_files" / "processed" / f"live_gameinfo_{SEASON}.parquet"
-
-
-def normalize_team_name(name: object) -> str:
-    return "".join(
-        character.lower()
-        for character in str(name or "")
-        if character.isalnum()
-    )
-
-
-def short_name(name: object) -> str:
-    return str(name or "").strip().lower().split()[-1] if str(name or "").strip() else ""
-
-
-def american_profit_units(american_odds: int) -> float:
-    if american_odds > 0:
-        return american_odds / 100.0
-    return 100.0 / abs(american_odds)
-
-
-def load_parquet(path: Path, label: str) -> pd.DataFrame:
-    if not path.exists() or path.stat().st_size == 0:
-        print(f"No {label} file found at {path}.")
-        return pd.DataFrame()
-
-    return pd.read_parquet(path)
-
-
-def match_result(
-    pick_row: pd.Series,
-    results: pd.DataFrame,
-) -> pd.Series | None:
-    game_id = pd.to_numeric(
-        pick_row.get("game_id"),
-        errors="coerce",
-    )
-
-    if pd.notna(game_id) and "game_id" in results.columns:
-        by_id = results[
-            pd.to_numeric(
-                results["game_id"],
-                errors="coerce",
-            ).eq(int(game_id))
-        ]
-
-        if not by_id.empty:
-            return by_id.iloc[-1]
-
-    away_token = normalize_team_name(pick_row.get("away_team"))
-    home_token = normalize_team_name(pick_row.get("home_team"))
-    game_date = str(pick_row.get("game_date", ""))
-
-    candidates = results[
-        results["game_date"].eq(game_date)
-        & results["away_key"].eq(away_token)
-        & results["home_key"].eq(home_token)
-    ]
-
-    if candidates.empty:
-        return None
-
-    return candidates.iloc[-1]
-
-
-def grade_moneyline(
-    pick: str,
-    away_team: str,
-    home_team: str,
-    away_score: float,
-    home_score: float,
-) -> str:
-    pick_lower = pick.lower()
-
-    away_short = short_name(away_team)
-    home_short = short_name(home_team)
-
-    if normalize_team_name(home_team) in normalize_team_name(pick) or (
-        home_short and home_short in pick_lower
-    ):
-        return "win" if home_score > away_score else "loss"
-
-    if normalize_team_name(away_team) in normalize_team_name(pick) or (
-        away_short and away_short in pick_lower
-    ):
-        return "win" if away_score > home_score else "loss"
-
-    return "pending"
-
-
-def grade_run_line(
-    pick: str,
-    away_team: str,
-    home_team: str,
-    away_score: float,
-    home_score: float,
-) -> str:
-    pick_lower = pick.lower()
-    away_short = short_name(away_team)
-    home_short = short_name(home_team)
-
-    picked_home = (
-        normalize_team_name(home_team) in normalize_team_name(pick)
-        or (home_short and home_short in pick_lower)
-    )
-
-    picked_away = (
-        normalize_team_name(away_team) in normalize_team_name(pick)
-        or (away_short and away_short in pick_lower)
-    )
-
-    if "+1.5" in pick:
-        run_line = 1.5
-    elif "-1.5" in pick or "−1.5" in pick:
-        run_line = -1.5
-    else:
-        return "pending"
-
-    if picked_home:
-        adjusted_margin = home_score - away_score + run_line
-    elif picked_away:
-        adjusted_margin = away_score - home_score + run_line
-    else:
-        return "pending"
-
-    if adjusted_margin > 0:
-        return "win"
-    if adjusted_margin < 0:
-        return "loss"
-    return "push"
-
-
-def grade_total(
-    pick: str,
-    posted_total: float | None,
-    away_score: float,
-    home_score: float,
-) -> str:
-    if posted_total is None or pd.isna(posted_total):
-        return "pending"
-
-    final_total = away_score + home_score
-    pick_lower = pick.lower()
-
-    if pick_lower.startswith("over"):
-        if final_total > posted_total:
-            return "win"
-        if final_total < posted_total:
-            return "loss"
-        return "push"
-
-    if pick_lower.startswith("under"):
-        if final_total < posted_total:
-            return "win"
-        if final_total > posted_total:
-            return "loss"
-        return "push"
-
-    return "pending"
-
-
-def grade_pick(
-    pick_row: pd.Series,
-    game_result: pd.Series,
-) -> str:
-    away_score = float(game_result["vruns"])
-    home_score = float(game_result["hruns"])
-
-    market = str(pick_row.get("market", "")).lower()
-    pick = str(pick_row.get("pick", ""))
-
-    if market == "ml":
-        return grade_moneyline(
-            pick,
-            str(pick_row.get("away_team", "")),
-            str(pick_row.get("home_team", "")),
-            away_score,
-            home_score,
-        )
-
-    if market == "rl":
-        return grade_run_line(
-            pick,
-            str(pick_row.get("away_team", "")),
-            str(pick_row.get("home_team", "")),
-            away_score,
-            home_score,
-        )
-
-    if market == "ou":
-        return grade_total(
-            pick,
-            pd.to_numeric(
-                pick_row.get("posted_total"),
-                errors="coerce",
-            ),
-            away_score,
-            home_score,
-        )
-
-    return "pending"
-
-
-def main() -> None:
-    ledger = load_parquet(LEDGER_PATH, "pick-history ledger")
-
-    if ledger.empty:
-        return
-
-    results = load_parquet(RESULTS_PATH, "live gameinfo")
-
-    if results.empty:
-        return
-
-    results = results.copy()
-    results["game_date"] = pd.to_datetime(
-        results["date"].astype(str),
-        format="%Y%m%d",
-        errors="coerce",
-    ).dt.date.astype(str)
-
-    results["away_key"] = results["visteam"].map(normalize_team_name)
-    results["home_key"] = results["hometeam"].map(normalize_team_name)
-
-    ledger = ledger.copy()
-
-    if "result" not in ledger.columns:
-        ledger["result"] = "pending"
-
-    if "profit_units" not in ledger.columns:
-        ledger["profit_units"] = 0.0
-
-    if "graded_at_utc" not in ledger.columns:
-        ledger["graded_at_utc"] = None
-
-    pending_mask = ledger["result"].fillna("pending").str.lower().eq("pending")
-
-    graded_count = 0
-
-    for index in ledger.index[pending_mask]:
-        result_game = match_result(ledger.loc[index], results)
-
-        if result_game is None:
-            continue
-
-        result = grade_pick(ledger.loc[index], result_game)
-
-        if result == "pending":
-            continue
-
-        odds = int(
-            pd.to_numeric(
-                ledger.at[index, "american_odds"],
-                errors="coerce",
-            )
-        )
-
-        if result == "win":
-            profit_units = american_profit_units(odds)
-        elif result == "loss":
-            profit_units = -1.0
-        else:
-            profit_units = 0.0
-
-        ledger.at[index, "result"] = result
-        ledger.at[index, "profit_units"] = profit_units
-        ledger.at[index, "graded_at_utc"] = datetime.datetime.now(
-            datetime.timezone.utc
-        ).isoformat()
-
-        graded_count += 1
-
-    ledger.to_parquet(LEDGER_PATH, index=False)
-
-    print(f"Wrote: {LEDGER_PATH}")
-    print(f"Newly graded picks: {graded_count:,}")
+    print(f"Total ledger rows: {len(combined):,}")
 
 
 if __name__ == "__main__":
