@@ -1,16 +1,25 @@
-name: Capture and grade MLB pick history
+name: Update MLB Pick History
 
 on:
   schedule:
-    - cron: "0 14 * * *"
-    - cron: "30 5 * * *"
+    # 10:30 AM EDT (14:30 UTC): update completed-game results and grade picks.
+    - cron: "30 14 * * *"
+
+    # 12:30 PM EDT (16:30 UTC): capture pregame odds and qualifying picks.
+    - cron: "30 16 * * *"
+
   workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-mlb-pick-history
+  cancel-in-progress: false
+
 jobs:
-  update-pick-history:
+  grade-picks:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 14 * * *'
     runs-on: ubuntu-latest
 
     steps:
@@ -22,21 +31,60 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install pick-history dependencies
+      - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install pandas pyarrow streamlit requests MLB-StatsAPI pybaseball
+          pip install pandas pyarrow requests numpy streamlit MLB-StatsAPI plotly
 
-      - name: Capture qualifying pregame picks
-        run: python scripts/capture_pick_history.py
+      - name: Refresh final MLB results
+        run: python scripts/fetch_live_gameinfo.py
 
       - name: Grade completed picks
         run: python scripts/grade_pick_history.py
 
-      - name: Commit pick-history changes
+      - name: Commit graded ledger
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git add \
+            data_files/processed/live_gameinfo_2026.parquet \
+            data_files/processed/pick_history_2026.parquet
+
+          git diff --cached --quiet || \
+            git commit -m "Grade MLB pick history"
+
+          git push
+
+  capture-picks:
+    if: github.event_name == 'workflow_dispatch' || github.event.schedule == '30 16 * * *'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install pandas pyarrow requests numpy streamlit MLB-StatsAPI plotly
+
+      - name: Capture pregame picks and prices
+        run: python scripts/capture_pick_history.py
+
+      - name: Commit captured ledger
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
           git add data_files/processed/pick_history_2026.parquet
-          git diff --cached --quiet || git commit -m "Update MLB pick history"
+
+          git diff --cached --quiet || \
+            git commit -m "Capture MLB pregame picks"
+
           git push
