@@ -846,7 +846,6 @@ with tab_bankroll:
 
         if history_df.empty:
             st.info(
-            st.info(
                 "No settled pick history is available for a bankroll simulation."
             )
         else:
