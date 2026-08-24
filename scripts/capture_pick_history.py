@@ -16,10 +16,11 @@ from page_utils import (
     _MLB_TO_RETRO,
     _fetch_espn_odds,
     _fetch_pitcher_stats,
-    _fetch_team_standings,
     _fetch_todays_schedule,
     _load_game_context_cache,
+    _load_precomputed,
 )
+
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import _build_game_recs
@@ -263,7 +264,7 @@ def main() -> None:
         print(f"No ESPN odds found for {capture_date.isoformat()}.")
         return
 
-    historical_standings = _fetch_team_standings()
+    historical_standings = _load_precomputed()["standings"]
     game_context = _load_game_context_cache()
 
     new_rows: list[dict] = []

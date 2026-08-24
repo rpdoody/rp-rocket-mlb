@@ -9,6 +9,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     _MLB_TO_RETRO,
     _fetch_espn_odds,
@@ -17,7 +18,6 @@ from page_utils import (
     _fetch_todays_schedule,
     _load_game_context_cache,
     init_session_state,
-    render_sidebar,
 )
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
@@ -28,6 +28,9 @@ from src.ui.recommendation_cards import (
     _rec_card_html,
     _short,
 )
+
+inject_app_style()
+render_top_nav()
 
 ET = ZoneInfo("America/New_York")
 
@@ -77,11 +80,12 @@ def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
 
 
 def is_final_game(game: dict) -> bool:
-    return str(game.get("status", "")).strip().lower() in {
-        "final",
-        "game over",
-        "completed",
-    }
+    status = str(game.get("status", "")).strip().lower()
+
+    return (
+        status in {"final", "game over", "completed"}
+        or status.startswith("final")
+    )
 
 
 def grade_recommendation(
@@ -104,30 +108,37 @@ def grade_recommendation(
     away_score = float(away_score)
     home_score = float(home_score)
 
+    pick = str(side.get("pick") or side.get("team") or "")
+    pick_lower = pick.lower()
+
+    home_name = str(game.get("home_name", "")).lower()
+    away_name = str(game.get("away_name", "")).lower()
+    home_short = home_name.split()[-1] if home_name else ""
+    away_short = away_name.split()[-1] if away_name else ""
+
+    picked_home = (
+        (home_name and home_name in pick_lower)
+        or (home_short and home_short in pick_lower)
+    )
+    picked_away = (
+        (away_name and away_name in pick_lower)
+        or (away_short and away_short in pick_lower)
+    )
+
     if market_key == "ml":
-        pick = str(side.get("pick", "")).lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
+        if picked_home:
+            return ("WIN", "✅") if home_score > away_score else ("LOSS", "❌")
 
-        if home_name and home_name in pick:
-            won = home_score > away_score
-        elif away_name and away_name in pick:
-            won = away_score > home_score
-        else:
-            return "PENDING", "⏳"
+        if picked_away:
+            return ("WIN", "✅") if away_score > home_score else ("LOSS", "❌")
 
-        return ("WIN", "✅") if won else ("LOSS", "❌")
+        return "PENDING", "⏳"
 
     if market_key == "rl":
-        pick = str(side.get("pick", ""))
-        pick_lower = pick.lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
-
-        if home_name and home_name in pick_lower:
-            picked_home = True
-        elif away_name and away_name in pick_lower:
-            picked_home = False
+        if picked_home:
+            margin = home_score - away_score
+        elif picked_away:
+            margin = away_score - home_score
         else:
             return "PENDING", "⏳"
 
@@ -138,9 +149,7 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
-        adjusted_margin = (
-            home_score - away_score + line if picked_home else away_score - home_score + line
-        )
+        adjusted_margin = margin + line
 
         if adjusted_margin > 0:
             return "WIN", "✅"
@@ -153,24 +162,22 @@ def grade_recommendation(
             return "PENDING", "⏳"
 
         final_total = away_score + home_score
-        pick = str(side.get("pick", "")).lower()
 
-        if pick.startswith("over"):
+        if pick_lower.startswith("over"):
             if final_total > posted_total:
                 return "WIN", "✅"
             if final_total < posted_total:
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        if pick.startswith("under"):
+        if pick_lower.startswith("under"):
             if final_total < posted_total:
                 return "WIN", "✅"
             if final_total > posted_total:
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        return "PENDING", "⏳"
-
+    return "PENDING", "⏳"
 
 def empty_record() -> dict[str, int]:
     return {"wins": 0, "losses": 0, "pushes": 0, "pending": 0}
@@ -180,7 +187,7 @@ def record_text(record: dict[str, int]) -> str:
     return f"{record['wins']}-{record['losses']}-{record['pushes']}"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cached_todays_schedule(game_date_iso: str):
     game_date = datetime.date.fromisoformat(game_date_iso)
 
@@ -211,12 +218,20 @@ def cached_weather(venue_name: str, game_date_iso: str):
 
 
 init_session_state()
-render_sidebar(show_year_filter=False)
 
 today_et = eastern_today()
-games_today = cached_todays_schedule(today_et.isoformat())
 
 st.title("🎯 Games & Betting Recommendations")
+
+selected_date = st.date_input(
+    "Game date",
+    value=today_et,
+    max_value=today_et,
+    format="MM/DD/YYYY",
+    key="betting_recommendations_date",
+)
+
+games_today = cached_todays_schedule(selected_date.isoformat())
 st.caption(
     "Contextual run projections include historical offense/defense, probable "
     "starters, bullpen workload proxy, park factor, weather, day/night context, "
@@ -225,6 +240,9 @@ st.caption(
 )
 
 record_slot = st.empty()
+if st.button("↻ Refresh final scores", key="refresh_scores"):
+    cached_todays_schedule.clear()
+    st.rerun()
 
 if not games_today:
     st.info(
@@ -233,20 +251,6 @@ if not games_today:
     )
     st.stop()
 
-if st.button(
-    "Load betting recommendations",
-    key="load_betting_recommendations",
-    type="primary",
-    width="content",
-):
-    st.session_state["show_betting_recommendations"] = True
-
-if not st.session_state.get("show_betting_recommendations", False):
-    st.caption(
-        f"{len(games_today)} game{'s' if len(games_today) != 1 else ''} scheduled today. "
-        "Load recommendations to calculate projections and compare available odds."
-    )
-    st.stop()
 
 with st.spinner("Building contextual projections and comparing odds…"):
     standings = cached_standings()

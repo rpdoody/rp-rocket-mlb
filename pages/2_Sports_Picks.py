@@ -1,3 +1,5 @@
+"""Page: Sports Picks — qualifying contextual MLB recommendations."""
+
 import datetime
 import sys
 from pathlib import Path
@@ -23,22 +25,15 @@ from page_utils import (
     _load_game_context_cache,
     init_session_state,
 )
-
 from src.top_nav import inject_app_style, render_top_nav
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
-from src.ui.recommendation_cards import (
-    _build_game_recs,
-    _prob_bar_html,
-    _projection_summary,
-    _short,
-)
+from src.ui.recommendation_cards import _build_game_recs
 
 inject_app_style()
 render_top_nav()
 
 ET = ZoneInfo("America/New_York")
-
 QUALIFYING_EDGE = 0.03
 
 
@@ -47,36 +42,48 @@ def eastern_today() -> datetime.date:
 
 
 def format_game_time_et(game_datetime: str) -> str:
+    """Format an MLB API datetime as Eastern Time."""
+
     if not game_datetime:
         return "TBD"
 
     try:
         game_time = datetime.datetime.fromisoformat(game_datetime.replace("Z", "+00:00"))
+
         if game_time.tzinfo is None:
             game_time = game_time.replace(tzinfo=datetime.timezone.utc)
+
         return game_time.astimezone(ET).strftime("%I:%M %p ET").lstrip("0")
     except (TypeError, ValueError):
         return "TBD"
 
 
 def game_date_from_datetime(game_datetime: str) -> str:
+    """Return the Eastern calendar date represented by an MLB API datetime."""
+
     if not game_datetime:
         return ""
 
     try:
         game_time = datetime.datetime.fromisoformat(game_datetime.replace("Z", "+00:00"))
+
         if game_time.tzinfo is None:
             game_time = game_time.replace(tzinfo=datetime.timezone.utc)
+
         return game_time.astimezone(ET).date().isoformat()
     except (TypeError, ValueError):
         return ""
 
 
 def normalize_team_name(team_name: str | None) -> str:
+    """Normalize team names before comparing data-source values."""
+
     return "".join(char.lower() for char in (team_name or "") if char.isalnum())
 
 
 def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
+    """Match an MLB schedule game with an ESPN odds event."""
+
     return (
         normalize_team_name(game.get("away_name"))
         == normalize_team_name(odds_game.get("away_team"))
@@ -86,11 +93,14 @@ def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
 
 
 def is_final_game(game: dict) -> bool:
-    return str(game.get("status", "")).strip().lower() in {
-        "final",
-        "game over",
-        "completed",
-    }
+    """Return whether the game status represents a completed game."""
+
+    status = str(game.get("status", "")).strip().lower()
+
+    return (
+        status in {"final", "game over", "completed"}
+        or status.startswith("final")
+    )
 
 
 def grade_recommendation(
@@ -99,6 +109,8 @@ def grade_recommendation(
     game: dict,
     posted_total: float | None = None,
 ) -> tuple[str, str]:
+    """Return a final result label and emoji for a recommendation."""
+
     if not is_final_game(game):
         return "PENDING", "⏳"
 
@@ -111,27 +123,40 @@ def grade_recommendation(
     away_score = float(away_score)
     home_score = float(home_score)
 
-    if market_key == "ml":
-        pick = str(side.get("pick", "")).lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
+    # ML selections typically use `team`; RL and totals usually use `pick`.
+    pick = str(side.get("pick") or side.get("team") or "")
+    pick_lower = pick.lower()
 
-        if home_name and home_name in pick:
+    home_name = str(game.get("home_name", "")).lower()
+    away_name = str(game.get("away_name", "")).lower()
+
+    # Supports cards that show shortened names: "Rays", "Yankees", etc.
+    home_short = home_name.split()[-1] if home_name else ""
+    away_short = away_name.split()[-1] if away_name else ""
+
+    picked_home = (
+        (home_name and home_name in pick_lower)
+        or (home_short and home_short in pick_lower)
+    )
+    picked_away = (
+        (away_name and away_name in pick_lower)
+        or (away_short and away_short in pick_lower)
+    )
+
+    if market_key == "ml":
+        if picked_home:
             return ("WIN", "✅") if home_score > away_score else ("LOSS", "❌")
-        if away_name and away_name in pick:
+
+        if picked_away:
             return ("WIN", "✅") if away_score > home_score else ("LOSS", "❌")
+
         return "PENDING", "⏳"
 
     if market_key == "rl":
-        pick = str(side.get("pick", ""))
-        pick_lower = pick.lower()
-        home_name = str(game.get("home_name", "")).lower()
-        away_name = str(game.get("away_name", "")).lower()
-
-        if home_name and home_name in pick_lower:
-            picked_home = True
-        elif away_name and away_name in pick_lower:
-            picked_home = False
+        if picked_home:
+            margin = home_score - away_score
+        elif picked_away:
+            margin = away_score - home_score
         else:
             return "PENDING", "⏳"
 
@@ -142,11 +167,7 @@ def grade_recommendation(
         else:
             return "PENDING", "⏳"
 
-        adjusted_margin = (
-            home_score - away_score + line
-            if picked_home
-            else away_score - home_score + line
-        )
+        adjusted_margin = margin + line
 
         if adjusted_margin > 0:
             return "WIN", "✅"
@@ -154,18 +175,20 @@ def grade_recommendation(
             return "LOSS", "❌"
         return "PUSH", "↔️"
 
-    if market_key == "ou" and posted_total is not None:
-        final_total = away_score + home_score
-        pick = str(side.get("pick", "")).lower()
+    if market_key == "ou":
+        if posted_total is None:
+            return "PENDING", "⏳"
 
-        if pick.startswith("over"):
+        final_total = away_score + home_score
+
+        if pick_lower.startswith("over"):
             if final_total > posted_total:
                 return "WIN", "✅"
             if final_total < posted_total:
                 return "LOSS", "❌"
             return "PUSH", "↔️"
 
-        if pick.startswith("under"):
+        if pick_lower.startswith("under"):
             if final_total < posted_total:
                 return "WIN", "✅"
             if final_total > posted_total:
@@ -175,9 +198,12 @@ def grade_recommendation(
     return "PENDING", "⏳"
 
 
-@st.cache_data(ttl=300, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cached_todays_schedule(game_date_iso: str):
+    """Fetch selected day's MLB schedule and scores."""
+
     game_date = datetime.date.fromisoformat(game_date_iso)
+
     try:
         return _fetch_todays_schedule(game_date)
     except TypeError:
@@ -207,7 +233,6 @@ def cached_weather(venue_name: str, game_date_iso: str):
 init_session_state()
 
 today_et = eastern_today()
-games_today = cached_todays_schedule(today_et.isoformat())
 
 st.title("🎯 Sports Picks")
 st.caption(
@@ -215,8 +240,25 @@ st.caption(
     f"Minimum model edge: {QUALIFYING_EDGE:.0%}."
 )
 
+selected_date = st.date_input(
+    "Game date",
+    value=today_et,
+    max_value=today_et,
+    format="MM/DD/YYYY",
+    key="sports_picks_date",
+)
+
+if st.button("↻ Refresh final scores", key="sports_picks_refresh"):
+    cached_todays_schedule.clear()
+    st.rerun()
+
+games_today = cached_todays_schedule(selected_date.isoformat())
+
 if not games_today:
-    st.info("No MLB games are scheduled today, or the MLB Stats API is unavailable.")
+    st.info(
+        f"No MLB games were found for {selected_date.strftime('%B %d, %Y')}, "
+        "or the MLB Stats API is unavailable."
+    )
     st.stop()
 
 st.caption(
@@ -244,8 +286,10 @@ for game in games_today:
     home_sp = game.get("home_probable_pitcher", "TBD") or "TBD"
     venue = game.get("venue_name", "—")
     game_time = format_game_time_et(game.get("game_datetime", ""))
+
     weather_date = (
-        game_date_from_datetime(game.get("game_datetime", "")) or today_et.isoformat()
+        game_date_from_datetime(game.get("game_datetime", ""))
+        or selected_date.isoformat()
     )
 
     projection = project_contextual_game(
@@ -263,6 +307,7 @@ for game in games_today:
         (odds for odds in espn_odds if is_matching_odds_game(game, odds)),
         None,
     )
+
     recs = _build_game_recs(game, espn_game, projection, standings)
 
     for market_key in ("ml", "rl", "ou"):
@@ -272,7 +317,6 @@ for game in games_today:
         market = recs[market_key]
         side = market[market["best"]]
 
-        # This is the page-level filter: do not display non-qualifiers.
         if side["edge"] <= QUALIFYING_EDGE:
             continue
 
@@ -292,7 +336,7 @@ for game in games_today:
                 "home_sp": home_sp,
                 "market": market_meta[market_key]["label"],
                 "icon": market_meta[market_key]["icon"],
-                "pick": side.get("pick", side.get("team", "—")),
+                "pick": side.get("pick") or side.get("team") or "—",
                 "odds": side.get("odds_str", "—"),
                 "edge": side["edge"],
                 "estimated_probability": side.get("est_prob"),

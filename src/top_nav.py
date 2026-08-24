@@ -2,68 +2,123 @@ import streamlit as st
 
 
 NAV_ITEMS = [
-    ("🏠 Home", "pages/0_Home.py"),
-    ("📅 Today", "pages/1_Today.py"),
-    ("⚾ Sports Picks", "pages/2_Sports_Picks.py"),
-    ("📊 Stats", "pages/3_Stats.py"),
-    ("🆚 Matchups", "pages/4_Matchup_Analysis.py"),
-    ("🤖 Models", "pages/5_Models.py"),
-    ("📈 Performance", "pages/6_Performance.py"),
-    ("🎯 Pick 6", "pages/7_Pick_6.py"),
-    ("🎯 Betting", "pages/9_Betting_Recommendations.py"),
-    ("ℹ️ About", "pages/8_Info.py"),
+    ("Home", "pages/0_Home.py"),
+    ("Today", "pages/1_Today.py"),
+    ("Sports Picks", "pages/2_Sports_Picks.py"),
+    ("Stats", "pages/3_Stats.py"),
+    ("Matchups", "pages/4_Matchup_Analysis.py"),
+    ("Models", "pages/5_Models.py"),
+    ("Performance", "pages/6_Performance.py"),
+    ("Pick 6", "pages/7_Pick_6.py"),
+    ("Betting", "pages/9_Betting_Recommendations.py"),
+    ("About", "pages/8_Info.py"),
 ]
 
 
 def inject_app_style() -> None:
-    """Apply shared styling and hide Streamlit's default navigation."""
+    """Apply shared application and navigation styling."""
     st.markdown(
         """
         <style>
+        .stApp {
+            background: #f7f9fc;
+            color: #172033;
+        }
+
         [data-testid="stSidebar"],
         [data-testid="stSidebarNav"],
         [data-testid="collapsedControl"] {
-            display: none;
+            display: none !important;
         }
 
-        .stApp {
-            background-color: #f9fafb;
-            color: #111827;
+        div[class*="st-key-top_nav_bar"] {
+            background: #002d72 !important;
+            border: 1px solid #00265f;
+            border-radius: 10px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.14);
+            padding: 6px 10px;
         }
 
-        div[data-testid="stHorizontalBlock"] .stPageLink a {
+        div[class*="st-key-top_nav_bar"] .stPageLink a,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:visited,
+        div[class*="st-key-top_nav_bar"] .stPageLink a p,
+        div[class*="st-key-top_nav_bar"] .stPageLink a span {
             align-items: center;
-            background: #ffffff;
-            border: 1px solid #dbe3ee;
-            border-radius: 8px;
-            color: #002D72 !important;
+            background: transparent !important;
+            border: none !important;
+            color: #ffffff !important;
             display: flex;
-            font-size: 0.78rem;
+            fill: #ffffff !important;
+            font-size: 0.88rem;
             font-weight: 650;
             justify-content: center;
+            line-height: 1;
             min-height: 42px;
-            padding: 8px 5px;
+            opacity: 1 !important;
+            padding: 13px 8px 11px;
             text-align: center;
+            text-decoration: none !important;
+            transition: background 0.15s ease, color 0.15s ease;
             white-space: nowrap;
             width: 100%;
         }
 
-        div[data-testid="stHorizontalBlock"] .stPageLink a:hover {
-            background: #eaf2ff;
-            border-color: #002D72;
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover p,
+        div[class*="st-key-top_nav_bar"] .stPageLink a:hover span {
+            background: rgba(255, 255, 255, 0.14) !important;
+            color: #ffffff !important;
+        }
+
+        div[class*="st-key-top_nav_bar"] .top-nav-brand {
+            color: #ffffff !important;
+            font-size: 0.96rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            padding: 12px 8px;
+            white-space: nowrap;
+        }
+
+        div[class*="st-key-top_nav_bar"] .top-nav-brand span {
+            color: #a9caff !important;
+            font-size: 0.72rem;
+            font-weight: 700;
+            margin-left: 6px;
+        }
+
+        @media (max-width: 900px) {
+            div[class*="st-key-top_nav_bar"] .stPageLink a,
+            div[class*="st-key-top_nav_bar"] .stPageLink a p {
+                font-size: 0.74rem;
+                padding: 10px 3px 8px;
+            }
+
+            div[class*="st-key-top_nav_bar"] .top-nav-brand {
+                display: none;
+            }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-
 def render_top_nav() -> None:
-    """Render the same page navigation bar at the top of every page."""
-    columns = st.columns(len(NAV_ITEMS), gap="small")
+    """Render a compact, professional shared navigation header."""
+    with st.container(key="top_nav_bar"):
+        brand_col, *nav_cols = st.columns(
+            [1.45] + [1] * len(NAV_ITEMS),
+            gap="small",
+            vertical_alignment="center",
+        )
 
-    for column, (label, page_path) in zip(columns, NAV_ITEMS):
-        with column:
-            st.page_link(page_path, label=label)
+        with brand_col:
+            st.markdown(
+                '<div class="top-nav-brand">RP ROCKET <span>MLB</span></div>',
+                unsafe_allow_html=True,
+            )
+
+        for column, (label, page_path) in zip(nav_cols, NAV_ITEMS):
+            with column:
+                st.page_link(page_path, label=label)
 
     st.divider()

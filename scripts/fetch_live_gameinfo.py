@@ -1,3 +1,5 @@
+"""Fetch completed MLB regular-season games into live gameinfo parquet."""
+
 from __future__ import annotations
 
 import datetime
@@ -11,12 +13,10 @@ import statsapi
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-
 ET = ZoneInfo("America/New_York")
 SEASON = 2026
 OUTPUT_PATH = ROOT / "data_files" / "processed" / f"live_gameinfo_{SEASON}.parquet"
 
-# MLB Stats API team abbreviation -> Retrosheet team code.
 MLB_ABBR_TO_RETRO = {
     "ARI": "ARI",
     "ATL": "ATL",
@@ -55,6 +55,7 @@ MLB_ABBR_TO_RETRO = {
     "WSH": "WAS",
     "WAS": "WAS",
 }
+
 MLB_NAME_TO_ABBR = {
     "Arizona Diamondbacks": "ARI",
     "Atlanta Braves": "ATL",
@@ -92,20 +93,25 @@ MLB_NAME_TO_ABBR = {
 
 
 def retro_code(team_abbr: str) -> str:
-    """Translate MLB Stats API abbreviations to Retrosheet team codes."""
-    return MLB_ABBR_TO_RETRO.get(
-        str(team_abbr).strip().upper(),
-        str(team_abbr).strip().upper(),
-    )
+    """Translate an MLB Stats API abbreviation to a Retrosheet code."""
+
+    value = str(team_abbr).strip().upper()
+    return MLB_ABBR_TO_RETRO.get(value, value)
 
 
 def is_completed_game(game: dict) -> bool:
-    """Keep only completed regular-season games with final scores."""
+    """Return true for a completed MLB regular-season game with final scores."""
+
     status = str(game.get("status", "")).strip().lower()
+
+    is_final = (
+        status in {"final", "game over", "completed"}
+        or status.startswith("final")
+    )
 
     return (
         game.get("game_type") == "R"
-        and status in {"final", "game over", "completed"}
+        and is_final
         and game.get("away_score") is not None
         and game.get("home_score") is not None
     )
@@ -115,25 +121,20 @@ def fetch_completed_games(
     start_date: datetime.date,
     end_date: datetime.date,
 ) -> list[dict]:
-    """Fetch regular-season schedule games and retain completed games."""
-    games = (
-        statsapi.schedule(
-            start_date=start_date.isoformat(),
-            end_date=end_date.isoformat(),
-            sportId=1,
-        )
-        or []
-    )
+    """Fetch schedule games and return only completed regular-season games."""
+
+    games = statsapi.schedule(
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        sportId=1,
+    ) or []
 
     return [game for game in games if is_completed_game(game)]
 
 
 def _schedule_team_abbr(game: dict, side: str) -> str:
-    """
-    Resolve a team's MLB abbreviation from a statsapi.schedule() game record.
+    """Resolve an away/home MLB abbreviation from a schedule record."""
 
-    `side` must be either 'away' or 'home'.
-    """
     direct_keys = (
         f"{side}_abbr",
         f"{side}_abbreviation",
@@ -143,7 +144,7 @@ def _schedule_team_abbr(game: dict, side: str) -> str:
     for key in direct_keys:
         value = game.get(key)
         if value:
-            return str(value).upper()
+            return str(value).strip().upper()
 
     name_keys = (
         f"{side}_name",
@@ -161,7 +162,8 @@ def _schedule_team_abbr(game: dict, side: str) -> str:
 
 
 def normalize_game(game: dict) -> dict:
-    """Normalize an MLB completed-game schedule row to gameinfo-compatible fields."""
+    """Convert one completed schedule game to the app's gameinfo format."""
+
     game_date = datetime.date.fromisoformat(game["game_date"])
 
     away_abbr = _schedule_team_abbr(game, "away")
@@ -169,8 +171,7 @@ def normalize_game(game: dict) -> dict:
 
     if not away_abbr or not home_abbr:
         raise ValueError(
-            "Unable to determine MLB team abbreviations for game "
-            f"{game.get('game_id')}. Available keys: {sorted(game.keys())}"
+            f"Unable to identify team abbreviations for game {game.get('game_id')}."
         )
 
     away_code = retro_code(away_abbr)
@@ -180,7 +181,9 @@ def normalize_game(game: dict) -> dict:
     home_runs = int(game["home_score"])
 
     if away_runs == home_runs:
-        raise ValueError(f"Completed game {game['game_id']} has a tied final score.")
+        raise ValueError(
+            f"Completed game {game['game_id']} has an invalid tied final score."
+        )
 
     return {
         "game_id": int(game["game_id"]),
@@ -192,6 +195,7 @@ def normalize_game(game: dict) -> dict:
         "vruns": away_runs,
         "hruns": home_runs,
         "wteam": home_code if home_runs > away_runs else away_code,
+        "lteam": away_code if home_runs > away_runs else home_code,
         "total_runs": away_runs + home_runs,
         "daynight": "",
         "attendance": pd.NA,
@@ -200,46 +204,95 @@ def normalize_game(game: dict) -> dict:
         "game_type": game.get("game_type", "R"),
         "status": game.get("status", ""),
         "source": "mlb_stats_api",
-        "retrieved_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "retrieved_at_utc": datetime.datetime.now(
+            datetime.timezone.utc
+        ).isoformat(),
     }
 
 
 def load_existing() -> pd.DataFrame:
-    """Load valid prior output; ignore an absent, empty, or corrupt parquet."""
+    """Read the existing season output if it is a valid Parquet file."""
+
     if not OUTPUT_PATH.exists() or OUTPUT_PATH.stat().st_size == 0:
         return pd.DataFrame()
 
     try:
         return pd.read_parquet(OUTPUT_PATH)
     except Exception as exc:
-        print(f"Warning: ignoring unreadable existing output ({OUTPUT_PATH.name}): {exc}")
+        print(
+            f"Warning: ignoring unreadable {OUTPUT_PATH.name}: {exc}"
+        )
         return pd.DataFrame()
 
 
 def main() -> None:
-    today_et = datetime.datetime.now(ET).date()
-    last_completed_date = min(today_et - datetime.timedelta(days=1), datetime.date(SEASON, 12, 31))
-    season_start = datetime.date(SEASON, 3, 1)
+    """Fetch all completed regular-season games from opening day through today."""
 
-    if last_completed_date < season_start:
+    today_et = datetime.datetime.now(ET).date()
+
+    season_start = datetime.date(SEASON, 3, 1)
+    season_end = min(today_et, datetime.date(SEASON, 12, 31))
+
+    if season_end < season_start:
         print(f"No completed {SEASON} regular-season games are available yet.")
         return
 
     print(
-        f"Fetching completed MLB regular-season games: {season_start} through {last_completed_date}"
+        f"Fetching completed MLB regular-season games: "
+        f"{season_start} through {season_end}"
     )
 
-    games = fetch_completed_games(season_start, last_completed_date)
-    rows = [normalize_game(game) for game in games]
+    games = fetch_completed_games(season_start, season_end)
+
+    rows = []
+    errors = []
+
+    for game in games:
+        try:
+            rows.append(normalize_game(game))
+        except (KeyError, TypeError, ValueError) as exc:
+            errors.append(
+                f"Skipped game {game.get('game_id', 'unknown')}: {exc}"
+            )
+
+    if errors:
+        print("\n".join(errors[:20]))
 
     if not rows:
-        print("No completed games returned from MLB Stats API.")
+        print("No completed games returned from the MLB Stats API.")
         return
 
     fresh = pd.DataFrame(rows)
 
-    team_columns = ["visteam", "hometeam", "wteam"]
-    blank_team_mask = fresh[team_columns].replace("", pd.NA).isna().any(axis=1)
+    required_columns = [
+        "game_id",
+        "season",
+        "date",
+        "visteam",
+        "hometeam",
+        "vruns",
+        "hruns",
+        "wteam",
+        "lteam",
+    ]
+
+    missing_columns = [
+        column for column in required_columns if column not in fresh.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"Refusing to write incomplete game data; missing {missing_columns}."
+        )
+
+    team_columns = ["visteam", "hometeam", "wteam", "lteam"]
+
+    blank_team_mask = (
+        fresh[team_columns]
+        .replace("", pd.NA)
+        .isna()
+        .any(axis=1)
+    )
 
     if blank_team_mask.any():
         raise ValueError(
@@ -255,6 +308,21 @@ def main() -> None:
         sort=False,
     )
 
+    combined["game_id"] = pd.to_numeric(
+        combined["game_id"],
+        errors="coerce",
+    )
+
+    combined["date"] = pd.to_numeric(
+        combined["date"],
+        errors="coerce",
+    )
+
+    combined = combined.dropna(subset=["game_id", "date"]).copy()
+
+    combined["game_id"] = combined["game_id"].astype(int)
+    combined["date"] = combined["date"].astype(int)
+
     combined = (
         combined.sort_values(["game_id", "retrieved_at_utc"])
         .drop_duplicates(subset=["game_id"], keep="last")
@@ -268,6 +336,7 @@ def main() -> None:
     coverage_dates = pd.to_datetime(
         combined["date"].astype(str),
         format="%Y%m%d",
+        errors="coerce",
     )
 
     print(f"Wrote: {OUTPUT_PATH}")
