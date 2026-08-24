@@ -1,5 +1,6 @@
-"""Page: Performance — Pick History · Model Performance · Bankroll"""
+"""Page: Performance — pick history, model performance, and bankroll tracking."""
 
+import datetime
 import sys
 from pathlib import Path
 
@@ -10,12 +11,12 @@ import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 
-from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     _american_to_implied_prob,
     _kelly_fraction,
     init_session_state,
 )
+from src.top_nav import inject_app_style, render_top_nav
 
 inject_app_style()
 render_top_nav()
@@ -29,33 +30,148 @@ tab_history, tab_perf, tab_bankroll = st.tabs(
     ["Pick History", "Model Performance", "Bankroll"]
 )
 
-_bt = st.session_state["eval_backtests"]
+backtests = st.session_state.get("eval_backtests")
 
 
-def get_dataframe_height(df, row_height=35, header_height=38, padding=2, max_height=600):
-    """
-    Calculate the optimal height for a Streamlit dataframe based on number of rows.
+def get_dataframe_height(
+    df: pd.DataFrame,
+    row_height: int = 35,
+    header_height: int = 38,
+    padding: int = 2,
+    max_height: int | None = 600,
+) -> int:
+    """Calculate a practical dataframe height while preventing oversized tables."""
 
-    Args:
-        df (pd.DataFrame): The dataframe to display
-        row_height (int): Height per row in pixels. Default: 35
-        header_height (int): Height of header row in pixels. Default: 38
-        padding (int): Extra padding in pixels. Default: 2
-        max_height (int): Maximum height cap in pixels. Default: 600 (None for no limit)
+    calculated_height = (len(df) * row_height) + header_height + padding
 
-    Returns:
-        int: Calculated height in pixels
+    if max_height is None:
+        return calculated_height
 
-    Example:
-        height = get_dataframe_height(my_df)
-        st.dataframe(my_df, height=height)
-    """
-    num_rows = len(df)
-    calculated_height = (num_rows * row_height) + header_height + padding
+    return min(calculated_height, max_height)
 
-    if max_height is not None:
-        return min(calculated_height, max_height)
-    return calculated_height
+
+def title_case(value: object) -> str:
+    """Convert an optional display value to title case."""
+
+    if value is None or pd.isna(value):
+        return "—"
+
+    return str(value).replace("_", " ").title()
+
+
+def readable_pick_type(value: object) -> str:
+    """Format stored pick-type values for dashboard display."""
+
+    mapping = {
+        "ml": "Moneyline",
+        "moneyline": "Moneyline",
+        "rl": "Run Line",
+        "spread": "Run Line",
+        "totals": "Totals",
+        "ou": "Over/Under",
+        "over_under": "Over/Under",
+    }
+
+    normalized = str(value or "").strip().lower()
+    return mapping.get(normalized, title_case(value))
+
+
+def normalize_result(value: object) -> str:
+    """Normalize result labels for filters and summary metrics."""
+
+    normalized = str(value or "").strip().lower()
+
+    if normalized in {"win", "won"}:
+        return "win"
+
+    if normalized in {"loss", "lost"}:
+        return "loss"
+
+    if normalized in {"push", "tie"}:
+        return "push"
+
+    if normalized in {"pending", "open", "unsettled"}:
+        return "pending"
+
+    return normalized or "pending"
+
+
+def format_american_odds(value: object) -> str:
+    """Format an odds value safely as an American odds string."""
+
+    try:
+        odds = int(float(value))
+    except (TypeError, ValueError):
+        return "—"
+
+    return f"+{odds}" if odds > 0 else str(odds)
+
+
+def build_history_dataframe(
+    evaluation_backtests: object,
+) -> pd.DataFrame:
+    """Convert stored backtest bet objects into one normalized dataframe."""
+
+    if not evaluation_backtests:
+        return pd.DataFrame()
+
+    rows: list[dict] = []
+
+    for model_name, backtest in evaluation_backtests.items():
+        bets = getattr(backtest, "bets", [])
+
+        for bet in bets:
+            rows.append(
+                {
+                    "model": title_case(model_name),
+                    "date": pd.to_datetime(
+                        getattr(bet, "date", None),
+                        errors="coerce",
+                    ),
+                    "game_id": getattr(bet, "game_id", None),
+                    "pick_type": readable_pick_type(
+                        getattr(bet, "pick_type", None)
+                    ),
+                    "confidence": title_case(
+                        getattr(bet, "confidence", None)
+                    ),
+                    "predicted_prob": pd.to_numeric(
+                        getattr(bet, "predicted_prob", None),
+                        errors="coerce",
+                    ),
+                    "edge": pd.to_numeric(
+                        getattr(bet, "edge", None),
+                        errors="coerce",
+                    ),
+                    "american_odds": pd.to_numeric(
+                        getattr(bet, "american_odds", None),
+                        errors="coerce",
+                    ),
+                    "result": normalize_result(
+                        getattr(bet, "result", None)
+                    ),
+                    "profit_units": pd.to_numeric(
+                        getattr(bet, "profit_units", None),
+                        errors="coerce",
+                    ),
+                }
+            )
+
+    history = pd.DataFrame(rows)
+
+    if history.empty:
+        return history
+
+    history["profit_units"] = history["profit_units"].fillna(0.0)
+    history = history.dropna(subset=["date"]).copy()
+
+    return history.sort_values(
+        ["date", "model"],
+        ascending=[True, True],
+    ).reset_index(drop=True)
+
+
+history_df = build_history_dataframe(backtests)
 
 
 # ── Pick History ──────────────────────────────────────────────────────────────
@@ -63,111 +179,179 @@ with tab_history:
     st.subheader("Pick History")
     st.markdown(
         "Settled modeled picks with recorded pregame market prices. "
-        "Pick History includes only games for which odds were saved before the game."
+        "This ledger uses saved backtest and pregame-odds records; it does not "
+        "retroactively invent historical odds for games whose prices were not captured."
     )
 
-    if _bt is None:
-        st.info("No pick history yet. Run the daily pipeline or backtest scripts to populate data.")
+    if history_df.empty:
+        st.info(
+            "No pick history is available yet. Run the daily pipeline or "
+            "backtest scripts to generate saved picks, odds, and outcomes."
+        )
     else:
-        _hist_rows: list[dict] = []
-        for _model_name, _bt_result in _bt.items():
-            for _b in _bt_result.bets:
-                _hist_rows.append(
-                    {
-                        "model": _model_name,
-                        "date": _b.date,
-                        "game_id": _b.game_id,
-                        "pick_type": _b.pick_type,
-                        "confidence": _b.confidence,
-                        "predicted_prob": _b.predicted_prob,
-                        "edge": _b.edge,
-                        "american_odds": _b.american_odds,
-                        "result": _b.result,
-                        "profit_units": _b.profit_units,
-                    }
-                )
-        _hist_df = pd.DataFrame(_hist_rows)
-        if _hist_df.empty:
-            st.info("No picks data available.")
+        earliest_pick_date = history_df["date"].min()
+        latest_pick_date = history_df["date"].max()
+
+        st.caption(
+            f"Saved pick-history coverage: "
+            f"{earliest_pick_date.strftime('%B %d, %Y')} through "
+            f"{latest_pick_date.strftime('%B %d, %Y')}."
+        )
+
+        min_date = earliest_pick_date.date()
+        max_date = latest_pick_date.date()
+
+        selected_dates = st.date_input(
+            "Pick date range",
+            value=(min_date, max_date),
+            min_value=min_date,
+            max_value=max_date,
+            key="performance_date_range",
+        )
+
+        fc1, fc2, fc3, fc4 = st.columns(4)
+
+        with fc1:
+            model_options = ["All"] + sorted(
+                history_df["model"].dropna().unique().tolist()
+            )
+            selected_model = st.selectbox(
+                "Model",
+                model_options,
+                key="performance_model_filter",
+            )
+
+        with fc2:
+            selected_result = st.selectbox(
+                "Result",
+                ["All", "win", "loss", "push", "pending"],
+                format_func=lambda value: (
+                    "All" if value == "All" else value.title()
+                ),
+                key="performance_result_filter",
+            )
+
+        with fc3:
+            confidence_options = ["All"] + sorted(
+                history_df["confidence"].dropna().unique().tolist()
+            )
+            selected_confidence = st.selectbox(
+                "Confidence",
+                confidence_options,
+                key="performance_confidence_filter",
+            )
+
+        with fc4:
+            pick_type_options = ["All"] + sorted(
+                history_df["pick_type"].dropna().unique().tolist()
+            )
+            selected_pick_type = st.selectbox(
+                "Pick type",
+                pick_type_options,
+                key="performance_pick_type_filter",
+            )
+
+        filtered = history_df.copy()
+
+        if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
+            start_date, end_date = selected_dates
+            filtered = filtered[
+                filtered["date"].dt.date.between(start_date, end_date)
+            ].copy()
+
+        if selected_model != "All":
+            filtered = filtered[filtered["model"] == selected_model]
+
+        if selected_result != "All":
+            filtered = filtered[filtered["result"] == selected_result]
+
+        if selected_confidence != "All":
+            filtered = filtered[
+                filtered["confidence"] == selected_confidence
+            ]
+
+        if selected_pick_type != "All":
+            filtered = filtered[
+                filtered["pick_type"] == selected_pick_type
+            ]
+
+        settled = filtered[
+            filtered["result"].isin(["win", "loss", "push"])
+        ].copy()
+
+        total_picks = len(filtered)
+        settled_bets = len(settled)
+        wins = int((settled["result"] == "win").sum())
+        losses = int((settled["result"] == "loss").sum())
+        pushes = int((settled["result"] == "push").sum())
+        pending = int((filtered["result"] == "pending").sum())
+
+        win_rate = wins / (wins + losses) if (wins + losses) else 0.0
+        total_units = float(filtered["profit_units"].sum())
+        avg_edge = (
+            float(filtered["edge"].mean())
+            if not filtered.empty
+            else 0.0
+        )
+        roi_per_bet = (
+            total_units / settled_bets
+            if settled_bets
+            else 0.0
+        )
+
+        m1, m2, m3, m4, m5, m6 = st.columns(6)
+
+        m1.metric("Picks", total_picks)
+        m2.metric("Record", f"{wins}–{losses}–{pushes}")
+        m3.metric("Win Rate", f"{win_rate:.1%}")
+        m4.metric("Units", f"{total_units:+.2f}")
+        m5.metric("ROI / Bet", f"{roi_per_bet:+.2%}")
+        m6.metric("Pending", pending)
+
+        st.caption(
+            f"Settled bets: {settled_bets:,} · "
+            f"Average model edge: {avg_edge:.1%}"
+        )
+
+        st.divider()
+
+        if not filtered.empty:
+            cumulative = filtered.sort_values(
+                ["model", "date"],
+                ascending=[True, True],
+            ).copy()
+
+            cumulative["cumulative_units"] = (
+                cumulative.groupby("model")["profit_units"].cumsum()
+            )
+
+            pnl_figure = px.line(
+                cumulative,
+                x="date",
+                y="cumulative_units",
+                color="model",
+                title="Cumulative P&L (Units)",
+                labels={
+                    "date": "Date",
+                    "cumulative_units": "Cumulative Units",
+                    "model": "Model",
+                },
+            )
+
+            pnl_figure.add_hline(
+                y=0,
+                line_dash="dot",
+                line_color="gray",
+            )
+
+            st.plotly_chart(pnl_figure, width="stretch")
+
+        st.markdown("#### Detailed Ledger")
+
+        if filtered.empty:
+            st.info("No picks match the current filters.")
         else:
-            _hist_df["model"] = _hist_df["model"].str.title()
-            _hist_df["date"] = pd.to_datetime(_hist_df["date"])
-            latest_pick_date = _hist_df["date"].max()
-            st.info(
-                f"Pick-history coverage currently runs through "
-                f"{latest_pick_date:%B %d, %Y}. "
-                "2026 game outcomes are available, but historical pregame odds "
-                "were not saved for those games, so they cannot be graded as "
-                "realistic betting picks.",
-                icon="ℹ️",
-            )
-            _PICK_TYPE_LABELS = {"totals": "Totals", "over_under": "Over/Under"}
-            _hist_df["pick_type"] = _hist_df["pick_type"].map(
-                lambda x: _PICK_TYPE_LABELS.get(x, x.title())
-            )
-            _hist_df["confidence"] = _hist_df["confidence"].str.title()
-
-            _fc1, _fc2, _fc3, _fc4 = st.columns(4)
-            with _fc1:
-                _models_avail = ["All"] + sorted(_hist_df["model"].unique().tolist())
-                _sel_model = st.selectbox("Model", _models_avail, key="hist_model_filter")
-            with _fc2:
-                _sel_result = st.selectbox(
-                    "Result", ["All", "win", "loss"], key="hist_result_filter"
-                )
-            with _fc3:
-                _conf_opts = ["All"] + sorted(_hist_df["confidence"].dropna().unique().tolist())
-                _sel_conf = st.selectbox("Confidence", _conf_opts, key="hist_conf_filter")
-            with _fc4:
-                _pt_opts = ["All"] + sorted(_hist_df["pick_type"].unique().tolist())
-                _sel_pt = st.selectbox("Pick Type", _pt_opts, key="hist_pt_filter")
-
-            _filtered = _hist_df.copy()
-            if _sel_model != "All":
-                _filtered = _filtered[_filtered["model"] == _sel_model]
-            if _sel_result != "All":
-                _filtered = _filtered[_filtered["result"] == _sel_result]
-            if _sel_conf != "All":
-                _filtered = _filtered[_filtered["confidence"] == _sel_conf]
-            if _sel_pt != "All":
-                _filtered = _filtered[_filtered["pick_type"] == _sel_pt]
-
-            _total_bets = len(_filtered)
-            _wins = int((_filtered["result"] == "win").sum())
-            _losses = int((_filtered["result"] == "loss").sum())
-            _win_rate = _wins / _total_bets if _total_bets > 0 else 0.0
-            _total_units = float(_filtered["profit_units"].sum())
-            _avg_edge = float(_filtered["edge"].mean()) if _total_bets > 0 else 0.0
-
-            _m1, _m2, _m3, _m4, _m5 = st.columns(5)
-            _m1.metric("Total Picks", _total_bets)
-            _m2.metric("Record", f"{_wins}–{_losses}")
-            _m3.metric("Win Rate", f"{_win_rate:.1%}")
-            _m4.metric("Total Units", f"{_total_units:+.2f}")
-            _m5.metric("Avg Edge", f"{_avg_edge:.1%}")
-
-            st.divider()
-
-            _cum_df = _filtered.sort_values(["model", "date"]).copy()
-            _cum_df["cumulative_units"] = _cum_df.groupby("model")["profit_units"].cumsum()
-            if not _cum_df.empty:
-                _pnl_fig = px.line(
-                    _cum_df,
-                    x="date",
-                    y="cumulative_units",
-                    color="model",
-                    title="Cumulative P&L (units)",
-                    labels={
-                        "date": "Date",
-                        "cumulative_units": "Cumulative Units",
-                        "model": "Model",
-                    },
-                )
-                _pnl_fig.add_hline(y=0, line_dash="dot", line_color="gray")
-                st.plotly_chart(_pnl_fig, width="stretch")
-
-            st.markdown("#### Detailed Ledger")
-            _display_df = _filtered[
+            display_df = filtered[
                 [
                     "date",
                     "model",
@@ -180,22 +364,36 @@ with tab_history:
                     "profit_units",
                 ]
             ].copy()
-            _display_df["date"] = _display_df["date"].dt.strftime("%Y-%m-%d")
-            _display_df["predicted_prob"] = (_display_df["predicted_prob"] * 100).round(1).astype(
-                str
-            ) + "%"
-            _display_df["edge"] = (_display_df["edge"] * 100).round(1).astype(str) + "%"
-            _display_df["american_odds"] = _display_df["american_odds"].apply(
-                lambda x: f"{int(x):,}"
+
+            display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
+            display_df["predicted_prob"] = display_df[
+                "predicted_prob"
+            ].map(
+                lambda value: (
+                    f"{value:.1%}" if pd.notna(value) else "—"
+                )
             )
-            _display_df = (
-                _display_df.rename(
+            display_df["edge"] = display_df["edge"].map(
+                lambda value: (
+                    f"{value:+.1%}" if pd.notna(value) else "—"
+                )
+            )
+            display_df["american_odds"] = display_df[
+                "american_odds"
+            ].map(format_american_odds)
+            display_df["result"] = display_df["result"].str.title()
+            display_df["profit_units"] = display_df[
+                "profit_units"
+            ].map(lambda value: f"{value:+.2f}")
+
+            display_df = (
+                display_df.rename(
                     columns={
                         "date": "Date",
                         "model": "Model",
                         "pick_type": "Pick Type",
                         "confidence": "Confidence",
-                        "predicted_prob": "Pred. Prob",
+                        "predicted_prob": "Pred. Prob.",
                         "edge": "Edge",
                         "american_odds": "Odds",
                         "result": "Result",
@@ -205,253 +403,460 @@ with tab_history:
                 .sort_values("Date", ascending=False)
                 .reset_index(drop=True)
             )
-            st.dataframe(_display_df, hide_index=True, width="stretch")
+
+            st.dataframe(
+                display_df,
+                hide_index=True,
+                width="stretch",
+                height=get_dataframe_height(display_df),
+            )
+
+            st.download_button(
+                "Download filtered pick history CSV",
+                data=filtered.to_csv(index=False),
+                file_name="filtered_pick_history.csv",
+                mime="text/csv",
+            )
+
 
 # ── Model Performance ─────────────────────────────────────────────────────────
 with tab_perf:
     st.subheader("Model Performance")
-    st.markdown("Backtest-derived profitability metrics.")
+    st.markdown(
+        "Backtest-derived profitability and calibration-ready performance metrics."
+    )
 
-    if _bt is None:
-        st.info("No model performance data yet. Run the backtest scripts to populate data.")
-    else:
-        st.markdown("### Leaderboard")
-        _lb_rows = [_btr.summary() for _btr in _bt.values()]
-        _lb_df = pd.DataFrame(_lb_rows).sort_values("roi", ascending=False)
-        _lb_df["model"] = _lb_df["model"].str.title()
-        if "pick_type" in _lb_df.columns:
-            _lb_df["pick_type"] = _lb_df["pick_type"].map(
-                lambda x: {"totals": "Totals", "over_under": "Over/Under"}.get(x, x.title())
-            )
-        if "period" in _lb_df.columns:
-            _lb_df["period"] = (
-                _lb_df["period"]
-                .astype(str)
-                .str.replace(r" \d{2}:\d{2}:\d{2}", "", regex=True)
-                .str.strip()
-            )
-        st.dataframe(
-            _lb_df.rename(
-                columns={
-                    "model": "Model",
-                    "pick_type": "Pick Type",
-                    "total_bets": "Bets",
-                    "wins": "Wins",
-                    "losses": "Losses",
-                    "pushes": "Pushes",
-                    "win_rate": "Win Rate",
-                    "total_units": "Units",
-                    "max_drawdown": "Max Drawdown",
-                    "roi": "ROI",
-                    "period": "Period",
-                }
-            ),
-            hide_index=True,
-            width="stretch",
+    if not backtests:
+        st.info(
+            "No model-performance data is available. Run the evaluation "
+            "or training scripts to generate backtest artifacts."
         )
+    else:
+        leaderboard_rows: list[dict] = []
 
-        _mp_rows: list[dict] = []
-        for _mn, _btr in _bt.items():
-            for _b in _btr.bets:
-                _mp_rows.append(
-                    {
-                        "model": _mn,
-                        "date": pd.to_datetime(_b.date),
-                        "profit_units": _b.profit_units,
-                        "result": _b.result,
-                        "confidence": _b.confidence,
-                    }
+        for backtest in backtests.values():
+            try:
+                leaderboard_rows.append(backtest.summary())
+            except (AttributeError, TypeError, ValueError):
+                continue
+
+        leaderboard = pd.DataFrame(leaderboard_rows)
+
+        if leaderboard.empty:
+            st.info("No readable model summaries are available.")
+        else:
+            if "model" in leaderboard.columns:
+                leaderboard["model"] = leaderboard["model"].map(
+                    title_case
                 )
-        _mp_df = pd.DataFrame(_mp_rows)
-        _mp_df["model"] = _mp_df["model"].str.title()
-        _mp_df["confidence"] = _mp_df["confidence"].str.title()
 
-        if not _mp_df.empty:
-            st.markdown("### Cumulative P&L by Model")
-            _mp_df_sorted = _mp_df.sort_values(["model", "date"]).copy()
-            _mp_df_sorted["cum_units"] = _mp_df_sorted.groupby("model")["profit_units"].cumsum()
-            _mp_fig = px.line(
-                _mp_df_sorted,
-                x="date",
-                y="cum_units",
-                color="model",
-                title="Cumulative Units by Model",
-                labels={"date": "Date", "cum_units": "Cumulative Units", "model": "Model"},
-            )
-            _mp_fig.add_hline(y=0, line_dash="dot", line_color="gray")
-            st.plotly_chart(_mp_fig, width="stretch")
+            if "pick_type" in leaderboard.columns:
+                leaderboard["pick_type"] = leaderboard[
+                    "pick_type"
+                ].map(readable_pick_type)
 
-            st.markdown("### Performance by Confidence Tier")
-            _tier_grp = (
-                _mp_df.groupby(["model", "confidence"])
-                .agg(
-                    bets=("profit_units", "count"),
-                    wins=("result", lambda x: (x == "win").sum()),
-                    total_units=("profit_units", "sum"),
+            if "period" in leaderboard.columns:
+                leaderboard["period"] = (
+                    leaderboard["period"]
+                    .astype(str)
+                    .str.replace(
+                        r" \d{2}:\d{2}:\d{2}",
+                        "",
+                        regex=True,
+                    )
+                    .str.strip()
                 )
-                .reset_index()
-            )
-            _tier_grp["win_rate"] = (_tier_grp["wins"] / _tier_grp["bets"]).round(3)
-            _tier_grp["roi"] = (_tier_grp["total_units"] / _tier_grp["bets"]).round(3)
+
+            if "roi" in leaderboard.columns:
+                leaderboard = leaderboard.sort_values(
+                    "roi",
+                    ascending=False,
+                )
+
+            st.markdown("### Leaderboard")
+
+            leaderboard_columns = {
+                "model": "Model",
+                "pick_type": "Pick Type",
+                "total_bets": "Bets",
+                "wins": "Wins",
+                "losses": "Losses",
+                "pushes": "Pushes",
+                "win_rate": "Win Rate",
+                "total_units": "Units",
+                "max_drawdown": "Max Drawdown",
+                "roi": "ROI",
+                "period": "Period",
+            }
+
+            existing_columns = [
+                column
+                for column in leaderboard_columns
+                if column in leaderboard.columns
+            ]
+
             st.dataframe(
-                _tier_grp.rename(
-                    columns={
-                        "model": "Model",
-                        "confidence": "Tier",
-                        "bets": "Bets",
-                        "wins": "Wins",
-                        "win_rate": "Win Rate",
-                        "total_units": "Units",
-                        "roi": "ROI/Bet",
-                    }
+                leaderboard[existing_columns].rename(
+                    columns=leaderboard_columns
                 ),
                 hide_index=True,
                 width="stretch",
+                height=get_dataframe_height(
+                    leaderboard[existing_columns]
+                ),
             )
-            _tier_bar = px.bar(
-                _tier_grp,
-                x="confidence",
-                y="roi",
+
+        if history_df.empty:
+            st.info("No individual backtest bets are available for charts.")
+        else:
+            st.markdown("### Cumulative P&L by Model")
+
+            performance_df = history_df.sort_values(
+                ["model", "date"],
+                ascending=[True, True],
+            ).copy()
+
+            performance_df["cumulative_units"] = (
+                performance_df.groupby("model")["profit_units"].cumsum()
+            )
+
+            performance_figure = px.line(
+                performance_df,
+                x="date",
+                y="cumulative_units",
                 color="model",
-                barmode="group",
-                title="ROI per Bet by Confidence Tier",
-                labels={"confidence": "Confidence", "roi": "ROI per Bet", "model": "Model"},
+                title="Cumulative Units by Model",
+                labels={
+                    "date": "Date",
+                    "cumulative_units": "Cumulative Units",
+                    "model": "Model",
+                },
             )
-            st.plotly_chart(_tier_bar, width="stretch")
+
+            performance_figure.add_hline(
+                y=0,
+                line_dash="dot",
+                line_color="gray",
+            )
+
+            st.plotly_chart(performance_figure, width="stretch")
+
+            st.markdown("### Performance by Confidence Tier")
+
+            settled_performance = performance_df[
+                performance_df["result"].isin(["win", "loss", "push"])
+            ].copy()
+
+            if settled_performance.empty:
+                st.info(
+                    "No settled bets are available for confidence-tier analysis."
+                )
+            else:
+                tier_summary = (
+                    settled_performance.groupby(
+                        ["model", "confidence"],
+                        dropna=False,
+                    )
+                    .agg(
+                        bets=("profit_units", "count"),
+                        wins=(
+                            "result",
+                            lambda values: (values == "win").sum(),
+                        ),
+                        losses=(
+                            "result",
+                            lambda values: (values == "loss").sum(),
+                        ),
+                        pushes=(
+                            "result",
+                            lambda values: (values == "push").sum(),
+                        ),
+                        total_units=("profit_units", "sum"),
+                    )
+                    .reset_index()
+                )
+
+                tier_summary["win_rate"] = (
+                    tier_summary["wins"]
+                    / (tier_summary["wins"] + tier_summary["losses"])
+                ).fillna(0.0)
+
+                tier_summary["roi_per_bet"] = (
+                    tier_summary["total_units"] / tier_summary["bets"]
+                ).fillna(0.0)
+
+                st.dataframe(
+                    tier_summary.rename(
+                        columns={
+                            "model": "Model",
+                            "confidence": "Confidence",
+                            "bets": "Bets",
+                            "wins": "Wins",
+                            "losses": "Losses",
+                            "pushes": "Pushes",
+                            "win_rate": "Win Rate",
+                            "total_units": "Units",
+                            "roi_per_bet": "ROI / Bet",
+                        }
+                    ),
+                    hide_index=True,
+                    width="stretch",
+                    height=get_dataframe_height(tier_summary),
+                )
+
+                tier_figure = px.bar(
+                    tier_summary,
+                    x="confidence",
+                    y="roi_per_bet",
+                    color="model",
+                    barmode="group",
+                    title="ROI per Bet by Confidence Tier",
+                    labels={
+                        "confidence": "Confidence",
+                        "roi_per_bet": "ROI per Bet",
+                        "model": "Model",
+                    },
+                )
+
+                tier_figure.add_hline(
+                    y=0,
+                    line_dash="dot",
+                    line_color="gray",
+                )
+
+                st.plotly_chart(tier_figure, width="stretch")
+
 
 # ── Bankroll ──────────────────────────────────────────────────────────────────
 with tab_bankroll:
     st.subheader("Bankroll Management")
     st.markdown(
-        "Use the Kelly calculator to size each bet and run a historical simulation "
-        "against the backtest results."
+        "Use the Kelly calculator to size a wager, then simulate the "
+        "historical backtest results in dollar terms."
     )
 
-    _col_kelly, _col_sim = st.columns([1, 1], gap="large")
+    kelly_column, simulation_column = st.columns(
+        [1, 1],
+        gap="large",
+    )
 
-    with _col_kelly:
+    with kelly_column:
         st.markdown("#### Kelly Calculator")
-        _bankroll_size = st.number_input(
-            "Bankroll ($)", min_value=10, max_value=1_000_000, value=200, step=2
-        )
-        _unit_size = st.number_input(
-            "Unit size ($)", min_value=1, max_value=10_000, value=6, step=10
-        )
-        _kelly_conf = st.selectbox("Confidence tier", options=["HIGH", "MEDIUM", "LOW"])
-        _tier_fractions = {"HIGH": 0.5, "MEDIUM": 0.25, "LOW": 0.125}
-        _tier_frac = _tier_fractions[_kelly_conf]
 
-        _american_odds = st.number_input(
+        bankroll_size = st.number_input(
+            "Bankroll ($)",
+            min_value=10,
+            max_value=1_000_000,
+            value=200,
+            step=10,
+            key="performance_bankroll_size",
+        )
+
+        unit_size = st.number_input(
+            "Unit size ($)",
+            min_value=1,
+            max_value=10_000,
+            value=6,
+            step=1,
+            key="performance_unit_size",
+        )
+
+        kelly_confidence = st.selectbox(
+            "Confidence tier",
+            options=["HIGH", "MEDIUM", "LOW"],
+            key="performance_kelly_confidence",
+        )
+
+        tier_fractions = {
+            "HIGH": 0.50,
+            "MEDIUM": 0.25,
+            "LOW": 0.125,
+        }
+
+        tier_fraction = tier_fractions[kelly_confidence]
+
+        american_odds = st.number_input(
             "American odds (e.g. -110, +150)",
             min_value=-2000,
             max_value=2000,
             value=-110,
             step=5,
+            key="performance_kelly_odds",
         )
-        _implied = _american_to_implied_prob(_american_odds)
-        st.caption(f"Implied probability: {_implied:.1%}")
 
-        _kelly_prob = st.slider(
+        implied_probability = _american_to_implied_prob(american_odds)
+
+        st.caption(
+            f"Implied probability: {implied_probability:.1%}"
+        )
+
+        default_probability = min(
+            max(round(implied_probability + 0.04, 2), 0.01),
+            0.99,
+        )
+
+        estimated_probability = st.slider(
             "Estimated win probability",
             min_value=0.01,
             max_value=0.99,
-            value=round(_implied + 0.04, 2),
+            value=default_probability,
             step=0.01,
+            key="performance_kelly_probability",
         )
-        _full_kelly = _kelly_fraction(prob=_kelly_prob, american_odds=_american_odds)
-        _applied_kelly = _full_kelly * _tier_frac
+
+        full_kelly = max(
+            _kelly_fraction(
+                prob=estimated_probability,
+                american_odds=american_odds,
+            ),
+            0.0,
+        )
+
+        applied_kelly = full_kelly * tier_fraction
+        bet_size = bankroll_size * applied_kelly
+        units_to_bet = bet_size / max(unit_size, 1)
 
         st.divider()
-        _kc1, _kc2 = st.columns(2)
-        _kc1.metric("Full Kelly %", f"{_full_kelly * 100:.2f}%")
-        _kc2.metric("Tier fraction", f"{_tier_frac:.2%}")
-        _kc3, _kc4 = st.columns(2)
-        _kc3.metric("Applied Kelly %", f"{_applied_kelly * 100:.2f}%")
-        _kc4.metric("Bet size ($)", f"${_bankroll_size * _applied_kelly:,.2f}")
-        _units_to_bet = (_bankroll_size * _applied_kelly) / max(_unit_size, 1)
-        st.metric("Units to bet", f"{_units_to_bet:.2f} units")
+
+        kc1, kc2 = st.columns(2)
+        kc1.metric("Full Kelly", f"{full_kelly:.2%}")
+        kc2.metric("Tier Fraction", f"{tier_fraction:.1%}")
+
+        kc3, kc4 = st.columns(2)
+        kc3.metric("Applied Kelly", f"{applied_kelly:.2%}")
+        kc4.metric("Bet Size", f"${bet_size:,.2f}")
+
+        st.metric("Units to Bet", f"{units_to_bet:.2f}")
 
         with st.expander("Kelly Formula"):
             st.latex(
-                r"f^* = \frac{bp - q}{b}"
-                r"\quad\text{where }b=\text{decimal payout},\;p=\hat{p},\;q=1-p"
+                r"f^* = \frac{bp-q}{b}"
+                r"\quad\text{where } b=\text{decimal payout},\;"
+                r"p=\hat{p},\;q=1-p"
             )
 
-    with _col_sim:
+    with simulation_column:
         st.markdown("#### Historical Bankroll Simulation")
-        if _bt is None:
-            st.info("No backtest data available for simulation.")
-        else:
-            _sim_model = st.selectbox(
-                "Select model",
-                options=list(_bt.keys()),
-                format_func=lambda x: x.title(),
+
+        if not backtests or history_df.empty:
+            st.info(
+                "No backtest data is available for a bankroll simulation."
             )
-            _sim_start = st.number_input(
+        else:
+            model_names = sorted(history_df["model"].unique().tolist())
+
+            simulation_model = st.selectbox(
+                "Select model",
+                options=model_names,
+                key="performance_simulation_model",
+            )
+
+            starting_bankroll = st.number_input(
                 "Starting bankroll ($)",
                 min_value=100,
                 max_value=1_000_000,
-                value=_bankroll_size,
+                value=int(bankroll_size),
                 step=100,
-                key="sim_start_br",
+                key="performance_simulation_start",
             )
-            _sim_unit = st.number_input(
-                "Unit size ($)",
+
+            simulation_unit = st.number_input(
+                "Simulation unit size ($)",
                 min_value=1,
                 max_value=10_000,
-                value=_unit_size,
-                step=10,
-                key="sim_unit_sz",
+                value=int(unit_size),
+                step=1,
+                key="performance_simulation_unit",
             )
 
-            _btr = _bt[_sim_model]
-            _sim_rows = [
-                {"date": pd.to_datetime(_b.date), "profit_units": _b.profit_units}
-                for _b in sorted(_btr.bets, key=lambda x: x.date)
-            ]
-            _sim_df = pd.DataFrame(_sim_rows)
+            simulation_df = history_df[
+                history_df["model"] == simulation_model
+            ].copy()
 
-            if _sim_df.empty:
-                st.info("No bets found for this model.")
+            simulation_df = simulation_df[
+                simulation_df["result"].isin(["win", "loss", "push"])
+            ].copy()
+
+            simulation_df = simulation_df.sort_values("date").reset_index(
+                drop=True
+            )
+
+            if simulation_df.empty:
+                st.info(
+                    "No settled bets are available for this model."
+                )
             else:
-                _sim_df["pnl_$"] = _sim_df["profit_units"] * _sim_unit
-                _sim_df["bankroll"] = _sim_start + _sim_df["pnl_$"].cumsum()
+                simulation_df["pnl_dollars"] = (
+                    simulation_df["profit_units"] * simulation_unit
+                )
 
-                _sim_fig = go.Figure()
-                _sim_fig.add_trace(
+                simulation_df["bankroll"] = (
+                    starting_bankroll
+                    + simulation_df["pnl_dollars"].cumsum()
+                )
+
+                simulation_df["running_peak"] = (
+                    simulation_df["bankroll"].cummax()
+                )
+
+                simulation_df["drawdown"] = (
+                    simulation_df["bankroll"]
+                    - simulation_df["running_peak"]
+                ) / simulation_df["running_peak"].clip(lower=1)
+
+                simulation_figure = go.Figure()
+
+                simulation_figure.add_trace(
                     go.Scatter(
-                        x=_sim_df["date"],
-                        y=_sim_df["bankroll"],
+                        x=simulation_df["date"],
+                        y=simulation_df["bankroll"],
                         mode="lines",
                         name="Bankroll",
-                        line=dict(color="#002D72", width=2),
+                        line=dict(
+                            color="#2563eb",
+                            width=2,
+                        ),
                     )
                 )
-                _sim_fig.add_hline(y=_sim_start, line_dash="dot", line_color="gray")
-                _sim_fig.update_layout(
-                    title=f"{_sim_model.title()} — Bankroll Growth",
+
+                simulation_figure.add_hline(
+                    y=starting_bankroll,
+                    line_dash="dot",
+                    line_color="gray",
+                )
+
+                simulation_figure.update_layout(
+                    title=f"{simulation_model} — Bankroll Growth",
                     xaxis_title="Date",
                     yaxis_title="Bankroll ($)",
                     yaxis_tickprefix="$",
                     height=380,
                 )
-                st.plotly_chart(_sim_fig, width="stretch")
 
-                _sim_df["running_peak"] = _sim_df["bankroll"].cummax()
-                _sim_df["drawdown"] = (_sim_df["bankroll"] - _sim_df["running_peak"]) / _sim_df[
-                    "running_peak"
-                ].clip(lower=1)
-
-                _final_br = _sim_df["bankroll"].iloc[-1]
-                _total_pnl = _final_br - _sim_start
-                _peak_br = _sim_df["running_peak"].max()
-                _max_drawdown = abs(_sim_df["drawdown"].min())
-
-                _sc1, _sc2, _sc3 = st.columns(3)
-                _sc1.metric(
-                    "Final bankroll",
-                    f"${_final_br:,.0f}",
-                    delta=f"${_total_pnl:+,.0f}",
+                st.plotly_chart(
+                    simulation_figure,
+                    width="stretch",
                 )
-                _sc2.metric("Peak bankroll", f"${_peak_br:,.0f}")
-                _sc3.metric("Max drawdown", f"{_max_drawdown:.1%}")
+
+                final_bankroll = simulation_df["bankroll"].iloc[-1]
+                total_pnl = final_bankroll - starting_bankroll
+                peak_bankroll = simulation_df["running_peak"].max()
+                max_drawdown = abs(simulation_df["drawdown"].min())
+
+                sc1, sc2, sc3 = st.columns(3)
+
+                sc1.metric(
+                    "Final Bankroll",
+                    f"${final_bankroll:,.0f}",
+                    delta=f"${total_pnl:+,.0f}",
+                )
+
+                sc2.metric(
+                    "Peak Bankroll",
+                    f"${peak_bankroll:,.0f}",
+                )
+
+                sc3.metric(
+                    "Max Drawdown",
+                    f"{max_drawdown:.1%}",
+                )
