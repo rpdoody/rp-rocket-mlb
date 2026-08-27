@@ -25,7 +25,7 @@
       "edge": 0.168,
       "tier": "Good",
       "odds": 169,
-      "line": NaN,
+      "line": null,
       "notes": null
     },
     {
@@ -40,7 +40,7 @@
       "edge": 0.072,
       "tier": "Good",
       "odds": 118,
-      "line": NaN,
+      "line": null,
       "notes": null
     },
     {
@@ -55,7 +55,7 @@
       "edge": 0.093,
       "tier": "Good",
       "odds": 140,
-      "line": NaN,
+      "line": null,
       "notes": null
     },
     {
