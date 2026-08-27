@@ -49,9 +49,7 @@ GAMEINFO_MAX_YEAR = max(_pre_gameinfo_max_year, _live_gameinfo_max_year)
 features_df = _pre.get("model_features", pd.DataFrame()).copy()
 
 if not features_df.empty and "season" in features_df.columns:
-    features_df = features_df[
-        features_df["season"].between(MIN_YEAR, CURRENT_YEAR)
-    ].copy()
+    features_df = features_df[features_df["season"].between(MIN_YEAR, CURRENT_YEAR)].copy()
 
 init_session_state(features_df=features_df)
 
@@ -95,10 +93,7 @@ def _build_feature_matrix(
     if not required_stat_columns.issubset(standings.columns):
         return pd.DataFrame()
 
-    gi_valid = gi[
-        gi["hometeam"].isin(standings.index)
-        & gi["visteam"].isin(standings.index)
-    ].copy()
+    gi_valid = gi[gi["hometeam"].isin(standings.index) & gi["visteam"].isin(standings.index)].copy()
 
     if gi_valid.empty:
         return pd.DataFrame()
@@ -114,37 +109,26 @@ def _build_feature_matrix(
     home_stats = standings[stat_columns].add_prefix("home_")
     visitor_stats = standings[stat_columns].add_prefix("vis_")
 
-    merged = (
-        gi_valid.merge(
-            home_stats,
-            left_on="hometeam",
-            right_index=True,
-            how="inner",
-        )
-        .merge(
-            visitor_stats,
-            left_on="visteam",
-            right_index=True,
-            how="inner",
-        )
+    merged = gi_valid.merge(
+        home_stats,
+        left_on="hometeam",
+        right_index=True,
+        how="inner",
+    ).merge(
+        visitor_stats,
+        left_on="visteam",
+        right_index=True,
+        how="inner",
     )
 
     if merged.empty:
         return pd.DataFrame()
 
     merged["WPct_diff"] = merged["home_WPct"] - merged["vis_WPct"]
-    merged["PythWPct_diff"] = (
-        merged["home_PythWPct"] - merged["vis_PythWPct"]
-    )
-    merged["RS_advantage"] = (
-        merged["home_RS_per_G"] - merged["vis_RS_per_G"]
-    )
-    merged["RA_advantage"] = (
-        merged["vis_RA_per_G"] - merged["home_RA_per_G"]
-    )
-    merged["home_win"] = (
-        merged["wteam"] == merged["hometeam"]
-    ).astype(int)
+    merged["PythWPct_diff"] = merged["home_PythWPct"] - merged["vis_PythWPct"]
+    merged["RS_advantage"] = merged["home_RS_per_G"] - merged["vis_RS_per_G"]
+    merged["RA_advantage"] = merged["vis_RA_per_G"] - merged["home_RA_per_G"]
+    merged["home_win"] = (merged["wteam"] == merged["hometeam"]).astype(int)
 
     merged = merged.rename(
         columns={
@@ -185,9 +169,7 @@ def _build_feature_matrix(
         "total_runs",
     ]
 
-    keep_columns = [
-        column for column in keep_columns if column in merged.columns
-    ]
+    keep_columns = [column for column in keep_columns if column in merged.columns]
 
     return merged[keep_columns].reset_index(drop=True)
 
@@ -215,16 +197,11 @@ tab_feat, tab_models, tab_eval, tab_savant = st.tabs(
 # ── Betting Features ──────────────────────────────────────────────────────────
 with tab_feat:
     st.subheader("Engineered Betting Features")
-    st.markdown(
-        "Feature matrix built from season-level stats — designed as inputs for ML models."
-    )
+    st.markdown("Feature matrix built from season-level stats — designed as inputs for ML models.")
 
     historical_standings = _pre.get("standings", pd.DataFrame()).copy()
 
-    if (
-        not historical_standings.empty
-        and "season" in historical_standings.columns
-    ):
+    if not historical_standings.empty and "season" in historical_standings.columns:
         historical_standings["season"] = pd.to_numeric(
             historical_standings["season"],
             errors="coerce",
@@ -232,10 +209,7 @@ with tab_feat:
 
     current_standings = cached_current_standings(CURRENT_YEAR).copy()
 
-    if (
-        not current_standings.empty
-        and "season" in current_standings.columns
-    ):
+    if not current_standings.empty and "season" in current_standings.columns:
         current_standings["season"] = pd.to_numeric(
             current_standings["season"],
             errors="coerce",
@@ -268,9 +242,7 @@ with tab_feat:
     )
 
     if not available_feature_years:
-        st.error(
-            "No overlapping seasons exist between standings data and game-level data."
-        )
+        st.error("No overlapping seasons exist between standings data and game-level data.")
         st.stop()
 
     feat_season = st.selectbox(
@@ -305,13 +277,9 @@ with tab_feat:
             f"{latest_game_date.strftime('%B %d, %Y')}."
         )
     else:
-        st.caption(
-            f"Game-level data is available through {GAMEINFO_MAX_YEAR}."
-        )
+        st.caption(f"Game-level data is available through {GAMEINFO_MAX_YEAR}.")
 
-    season_standings_df = all_standings[
-        all_standings["season"].eq(int(feat_season))
-    ].copy()
+    season_standings_df = all_standings[all_standings["season"].eq(int(feat_season))].copy()
 
     if season_standings_df.empty or "team" not in season_standings_df.columns:
         st.info(f"No standings data is available for {feat_season}.")
@@ -326,18 +294,14 @@ with tab_feat:
         )
 
     if feat_df.empty:
-        st.info(
-            "No games with complete standings coverage are available for this season."
-        )
+        st.info("No games with complete standings coverage are available for this season.")
     else:
         feat_df["date"] = pd.to_datetime(
             feat_df["date"],
             errors="coerce",
         )
 
-        st.markdown(
-            f"**{len(feat_df):,} games** in {feat_season} with full feature coverage."
-        )
+        st.markdown(f"**{len(feat_df):,} games** in {feat_season} with full feature coverage.")
 
         valid_dates = feat_df["date"].dropna()
 
@@ -433,9 +397,7 @@ with tab_feat:
         ]
 
         numerical_features = [
-            column
-            for column in numerical_features
-            if column in filtered_feat.columns
+            column for column in numerical_features if column in filtered_feat.columns
         ]
 
         if len(numerical_features) > 1:
@@ -455,13 +417,9 @@ with tab_feat:
             }
 
             correlation = filtered_feat[numerical_features].corr()
-            correlation.index = [
-                readable_names.get(column, column)
-                for column in correlation.index
-            ]
+            correlation.index = [readable_names.get(column, column) for column in correlation.index]
             correlation.columns = [
-                readable_names.get(column, column)
-                for column in correlation.columns
+                readable_names.get(column, column) for column in correlation.columns
             ]
 
             fig = px.imshow(
@@ -509,8 +467,7 @@ with tab_feat:
 
         if MIN_YEAR > trend_max_year:
             st.info(
-                f"Home-field and weather trend data are available only through "
-                f"{GAMEINFO_MAX_YEAR}."
+                f"Home-field and weather trend data are available only through {GAMEINFO_MAX_YEAR}."
             )
         else:
             with st.spinner("Loading historical trend data…"):
@@ -521,15 +478,9 @@ with tab_feat:
                 "hometeam",
                 "season",
             }.issubset(gi_all.columns):
-                gi_all["home_win"] = (
-                    gi_all["wteam"] == gi_all["hometeam"]
-                ).astype(int)
+                gi_all["home_win"] = (gi_all["wteam"] == gi_all["hometeam"]).astype(int)
 
-                home_field_advantage = (
-                    gi_all.groupby("season")["home_win"]
-                    .mean()
-                    .reset_index()
-                )
+                home_field_advantage = gi_all.groupby("season")["home_win"].mean().reset_index()
                 home_field_advantage.columns = [
                     "season",
                     "home_win_pct",
@@ -560,9 +511,7 @@ with tab_feat:
                     and "total_runs" in gi_all.columns
                     and gi_all["temp"].notna().sum() > 100
                 ):
-                    temp_df = gi_all.dropna(
-                        subset=["temp", "total_runs"]
-                    ).copy()
+                    temp_df = gi_all.dropna(subset=["temp", "total_runs"]).copy()
 
                     temp_df = temp_df[temp_df["temp"] > 0]
 
@@ -614,9 +563,7 @@ All models use a **chronological train/test split** to avoid lookahead.
     results = st.session_state.get("ml_results")
 
     if results is None:
-        st.info(
-            "Pre-trained results not found. Run `scripts/train_models.py` to generate them."
-        )
+        st.info("Pre-trained results not found. Run `scripts/train_models.py` to generate them.")
     else:
         model_labels = {
             "moneyline": "🏆 Moneyline (P home win)",
@@ -705,9 +652,7 @@ All models use a **chronological train/test split** to avoid lookahead.
 
             st.plotly_chart(fig, width="stretch")
 
-        imp_tab_ml, imp_tab_sp, imp_tab_ou = st.tabs(
-            ["Moneyline", "Spread", "Over/Under"]
-        )
+        imp_tab_ml, imp_tab_sp, imp_tab_ou = st.tabs(["Moneyline", "Spread", "Over/Under"])
 
         with imp_tab_ml:
             importance_chart("moneyline")
@@ -726,9 +671,7 @@ All models use a **chronological train/test split** to avoid lookahead.
             actual_column: str,
             label: str,
         ) -> None:
-            test_df = results[model_key]["test_df"][
-                [probability_column, actual_column]
-            ].copy()
+            test_df = results[model_key]["test_df"][[probability_column, actual_column]].copy()
 
             test_df["bin"] = pd.cut(
                 test_df[probability_column],
@@ -769,9 +712,7 @@ All models use a **chronological train/test split** to avoid lookahead.
 
             st.plotly_chart(fig, width="stretch")
 
-        cal_tab_ml, cal_tab_sp, cal_tab_ou = st.tabs(
-            ["Moneyline", "Spread", "Over/Under"]
-        )
+        cal_tab_ml, cal_tab_sp, cal_tab_ou = st.tabs(["Moneyline", "Spread", "Over/Under"])
 
         with cal_tab_ml:
             calibration_chart(
@@ -822,25 +763,17 @@ All models use a **chronological train/test split** to avoid lookahead.
             pass
 
         if bt_model == "moneyline" and "pred_win" in bt_df.columns:
-            bt_df["pred_win"] = bt_df["pred_win"].map(
-                {1: "Home", 0: "Away"}
-            )
+            bt_df["pred_win"] = bt_df["pred_win"].map({1: "Home", 0: "Away"})
 
         if bt_model == "spread" and "pred_cover" in bt_df.columns:
-            bt_df["pred_cover"] = bt_df["pred_cover"].map(
-                {1: "Home −1.5", 0: "Away +1.5"}
-            )
+            bt_df["pred_cover"] = bt_df["pred_cover"].map({1: "Home −1.5", 0: "Away +1.5"})
 
         if "correct" in bt_df.columns:
-            bt_df["correct"] = bt_df["correct"].astype(bool).map(
-                {True: "✔", False: ""}
-            )
+            bt_df["correct"] = bt_df["correct"].astype(bool).map({True: "✔", False: ""})
 
         for column in ("home_win", "home_cover", "went_over"):
             if column in bt_df.columns:
-                bt_df[column] = bt_df[column].astype(bool).map(
-                    {True: "✔", False: ""}
-                )
+                bt_df[column] = bt_df[column].astype(bool).map({True: "✔", False: ""})
 
         if bt_model == "moneyline":
             display_columns = {
@@ -878,17 +811,9 @@ All models use a **chronological train/test split** to avoid lookahead.
                 "correct": "Correct?",
             }
 
-        existing_columns = [
-            column
-            for column in display_columns
-            if column in bt_df.columns
-        ]
+        existing_columns = [column for column in display_columns if column in bt_df.columns]
 
-        display_bt = (
-            bt_df[existing_columns]
-            .reset_index(drop=True)
-            .rename(columns=display_columns)
-        )
+        display_bt = bt_df[existing_columns].reset_index(drop=True).rename(columns=display_columns)
 
         st.dataframe(
             display_bt,
@@ -925,10 +850,7 @@ with tab_eval:
     evaluation_backtests = st.session_state.get("eval_backtests")
 
     if evaluation_backtests:
-        leaderboard = [
-            backtest.summary()
-            for backtest in evaluation_backtests.values()
-        ]
+        leaderboard = [backtest.summary() for backtest in evaluation_backtests.values()]
 
         leaderboard_df = pd.DataFrame(leaderboard).sort_values(
             "roi",
@@ -937,10 +859,7 @@ with tab_eval:
 
         if "period" in leaderboard_df.columns:
             leaderboard_df["period"] = (
-                leaderboard_df["period"]
-                .astype(str)
-                .str.strip()
-                .str.slice(0, 10)
+                leaderboard_df["period"].astype(str).str.strip().str.slice(0, 10)
             )
 
         st.markdown("### Backtest Leaderboard")
@@ -969,15 +888,9 @@ with tab_eval:
         st.markdown("### Calibration Charts")
 
         for name, backtest in evaluation_backtests.items():
-            actual = [
-                1 if bet.result == "win" else 0
-                for bet in backtest.bets
-            ]
+            actual = [1 if bet.result == "win" else 0 for bet in backtest.bets]
 
-            probabilities = [
-                bet.predicted_prob
-                for bet in backtest.bets
-            ]
+            probabilities = [bet.predicted_prob for bet in backtest.bets]
 
             cal_data = calibration_plot_data(
                 np.array(actual),
@@ -1008,8 +921,7 @@ with tab_eval:
 
     else:
         st.info(
-            "No evaluation data yet. Run `scripts/run_evaluation.py` "
-            "or `scripts/train_models.py`."
+            "No evaluation data yet. Run `scripts/run_evaluation.py` or `scripts/train_models.py`."
         )
 
 
@@ -1044,8 +956,7 @@ with tab_savant:
 
         top_cutoff = (
             mc_trials["mean_auc"].quantile(0.90)
-            if mc_trials is not None
-            and "mean_auc" in mc_trials.columns
+            if mc_trials is not None and "mean_auc" in mc_trials.columns
             else None
         )
 
@@ -1074,12 +985,8 @@ with tab_savant:
 
             performance_columns = st.columns(3)
 
-            for index, model_name in enumerate(
-                ["moneyline", "spread", "totals"]
-            ):
-                row = savant_metrics[
-                    savant_metrics["model"] == model_name
-                ]
+            for index, model_name in enumerate(["moneyline", "spread", "totals"]):
+                row = savant_metrics[savant_metrics["model"] == model_name]
 
                 if row.empty:
                     continue
@@ -1089,10 +996,7 @@ with tab_savant:
                 performance_columns[index].metric(
                     label=f"{model_name.capitalize()} AUC (Savant)",
                     value=f"{auc:.4f}",
-                    delta=(
-                        f"{auc - baseline_auc[model_name]:+.4f} "
-                        "vs baseline"
-                    ),
+                    delta=(f"{auc - baseline_auc[model_name]:+.4f} vs baseline"),
                 )
 
         if mc_trials is not None and not mc_trials.empty:
@@ -1105,17 +1009,13 @@ with tab_savant:
             ]
 
             if auc_columns:
-                auc_long = mc_trials[
-                    auc_columns + ["mean_auc"]
-                ].melt(
+                auc_long = mc_trials[auc_columns + ["mean_auc"]].melt(
                     var_name="target",
                     value_name="auc",
                 )
 
                 auc_long["target"] = (
-                    auc_long["target"]
-                    .str.replace("_auc", "", regex=False)
-                    .str.capitalize()
+                    auc_long["target"].str.replace("_auc", "", regex=False).str.capitalize()
                 )
 
                 fig_dist = px.box(
@@ -1155,21 +1055,13 @@ with tab_savant:
 
                 st.plotly_chart(fig_dist, width="stretch")
 
-        bat_ranks = mc_ranking[
-            mc_ranking["type"] == "batter"
-        ].head(20).copy()
+        bat_ranks = mc_ranking[mc_ranking["type"] == "batter"].head(20).copy()
 
-        pit_ranks = mc_ranking[
-            mc_ranking["type"] == "pitcher"
-        ].head(20).copy()
+        pit_ranks = mc_ranking[mc_ranking["type"] == "pitcher"].head(20).copy()
 
-        bat_ranks["appearance_pct"] = (
-            bat_ranks["appearance_rate"] * 100
-        )
+        bat_ranks["appearance_pct"] = bat_ranks["appearance_rate"] * 100
 
-        pit_ranks["appearance_pct"] = (
-            pit_ranks["appearance_rate"] * 100
-        )
+        pit_ranks["appearance_pct"] = pit_ranks["appearance_rate"] * 100
 
         st.markdown("#### Top Batter Features")
 
@@ -1220,9 +1112,7 @@ with tab_savant:
         with st.expander("Full Feature Ranking Table"):
             display_rank = mc_ranking.copy()
 
-            display_rank["appearance_rate"] = (
-                display_rank["appearance_rate"] * 100
-            ).round(1)
+            display_rank["appearance_rate"] = (display_rank["appearance_rate"] * 100).round(1)
 
             st.dataframe(
                 display_rank.rename(

@@ -22,30 +22,16 @@ def current_season() -> int:
 
 
 def ledger_path() -> Path:
-    return (
-        ROOT
-        / "data_files"
-        / "processed"
-        / f"pick_history_{current_season()}.parquet"
-    )
+    return ROOT / "data_files" / "processed" / f"pick_history_{current_season()}.parquet"
 
 
 def results_path() -> Path:
-    return (
-        ROOT
-        / "data_files"
-        / "processed"
-        / f"live_gameinfo_{current_season()}.parquet"
-    )
+    return ROOT / "data_files" / "processed" / f"live_gameinfo_{current_season()}.parquet"
 
 
 def normalize_text(value: object) -> str:
     """Normalize text for loose matching of team labels and pick strings."""
-    return "".join(
-        character.lower()
-        for character in str(value or "")
-        if character.isalnum()
-    )
+    return "".join(character.lower() for character in str(value or "") if character.isalnum())
 
 
 def team_short_name(full_name: object) -> str:
@@ -65,11 +51,7 @@ def retro_code_for_full_name(full_name: object) -> str:
 
 def american_profit_units(american_odds: int) -> float:
     """Profit in units when risking one unit at American odds."""
-    return (
-        american_odds / 100.0
-        if american_odds > 0
-        else 100.0 / abs(american_odds)
-    )
+    return american_odds / 100.0 if american_odds > 0 else 100.0 / abs(american_odds)
 
 
 def team_matches_pick(
@@ -81,10 +63,7 @@ def team_matches_pick(
     normalized_full = normalize_text(full_team_name)
     short = team_short_name(full_team_name)
 
-    return (
-        normalized_full in normalized_pick
-        or (short and short in normalized_pick)
-    )
+    return normalized_full in normalized_pick or (short and short in normalized_pick)
 
 
 def grade_moneyline(
@@ -245,10 +224,7 @@ def load_final_results() -> pd.DataFrame:
     missing = required_columns - set(results.columns)
 
     if missing:
-        print(
-            "Live game-results file is missing columns: "
-            f"{', '.join(sorted(missing))}"
-        )
+        print(f"Live game-results file is missing columns: {', '.join(sorted(missing))}")
         return pd.DataFrame()
 
     results["status"] = results["status"].astype(str).str.strip().str.lower()
@@ -275,9 +251,7 @@ def load_final_results() -> pd.DataFrame:
         errors="coerce",
     )
 
-    return results.dropna(
-        subset=["game_id", "game_date", "vruns", "hruns"]
-    ).copy()
+    return results.dropna(subset=["game_id", "game_date", "vruns", "hruns"]).copy()
 
 
 def find_result(
@@ -291,9 +265,7 @@ def find_result(
     )
 
     if pd.notna(game_id):
-        by_game_id = final_results[
-            final_results["game_id"].eq(int(game_id))
-        ]
+        by_game_id = final_results[final_results["game_id"].eq(int(game_id))]
 
         if not by_game_id.empty:
             return by_game_id.iloc[-1]
@@ -304,9 +276,7 @@ def find_result(
 
     # Fallback only when a game ID is unavailable/mismatched.
     # Compare final-word team labels against Retrosheet codes loosely.
-    candidates = final_results[
-        final_results["game_date"].eq(game_date)
-    ].copy()
+    candidates = final_results[final_results["game_date"].eq(game_date)].copy()
 
     if candidates.empty:
         return None
@@ -356,12 +326,7 @@ def main() -> None:
         ledger["graded_at_utc"] = None
 
     pending_mask = (
-        ledger["result"]
-        .fillna("pending")
-        .astype(str)
-        .str.strip()
-        .str.lower()
-        .eq("pending")
+        ledger["result"].fillna("pending").astype(str).str.strip().str.lower().eq("pending")
     )
 
     graded_count = 0
@@ -400,9 +365,7 @@ def main() -> None:
 
         ledger.at[index, "result"] = outcome
         ledger.at[index, "profit_units"] = profit_units
-        ledger.at[index, "graded_at_utc"] = datetime.datetime.now(
-            datetime.timezone.utc
-        ).isoformat()
+        ledger.at[index, "graded_at_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
 
         graded_count += 1
 
@@ -410,12 +373,7 @@ def main() -> None:
     ledger.to_parquet(path, index=False)
 
     pending_after = int(
-        ledger["result"]
-        .fillna("pending")
-        .astype(str)
-        .str.lower()
-        .eq("pending")
-        .sum()
+        ledger["result"].fillna("pending").astype(str).str.lower().eq("pending").sum()
     )
 
     print(f"Updated ledger: {path}")

@@ -880,6 +880,7 @@ def _estimate_win_prob(home_full: str, away_full: str, live_standings: dict[str,
     difference = pct(home_full) - pct(away_full) + 0.04
     return max(0.10, min(0.90, 1.0 / (1.0 + math.exp(-difference * 8))))
 
+
 @st.cache_data(show_spinner=False, ttl=300)
 def load_live_pick_history(season: int | None = None) -> pd.DataFrame:
     """Load saved Live Model picks for one season, if available."""
@@ -903,13 +904,7 @@ def load_live_pick_history(season: int | None = None) -> pd.DataFrame:
         if "result" not in ledger.columns:
             ledger["result"] = "pending"
 
-        ledger["result"] = (
-            ledger["result"]
-            .fillna("pending")
-            .astype(str)
-            .str.strip()
-            .str.lower()
-        )
+        ledger["result"] = ledger["result"].fillna("pending").astype(str).str.strip().str.lower()
 
         if "profit_units" not in ledger.columns:
             ledger["profit_units"] = 0.0
@@ -939,15 +934,10 @@ def render_selected_date_record(selected_date: datetime.date) -> None:
     date_rows = ledger[ledger["game_date"] == selected_date].copy()
 
     if date_rows.empty:
-        st.caption(
-            f"No captured Live Model picks for "
-            f"{selected_date.strftime('%B %d, %Y')}."
-        )
+        st.caption(f"No captured Live Model picks for {selected_date.strftime('%B %d, %Y')}.")
         return
 
-    settled = date_rows[
-        date_rows["result"].isin(["win", "loss", "push"])
-    ].copy()
+    settled = date_rows[date_rows["result"].isin(["win", "loss", "push"])].copy()
 
     wins = int((settled["result"] == "win").sum())
     losses = int((settled["result"] == "loss").sum())
@@ -971,6 +961,7 @@ def render_selected_date_record(selected_date: datetime.date) -> None:
         f"{'s' if len(date_rows) != 1 else ''} for "
         f"{selected_date.strftime('%B %d, %Y')}."
     )
+
 
 # ─── HTML Components ──────────────────────────────────────────────────────────
 

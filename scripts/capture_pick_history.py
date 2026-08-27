@@ -20,7 +20,6 @@ from page_utils import (
     _load_game_context_cache,
     _load_precomputed,
 )
-
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import _build_game_recs
@@ -34,21 +33,12 @@ def current_season() -> int:
 
 
 def output_path() -> Path:
-    return (
-        ROOT
-        / "data_files"
-        / "processed"
-        / f"pick_history_{current_season()}.parquet"
-    )
+    return ROOT / "data_files" / "processed" / f"pick_history_{current_season()}.parquet"
 
 
 def normalize_team_name(team_name: str | None) -> str:
     """Normalize team labels for schedule/odds matching."""
-    return "".join(
-        character.lower()
-        for character in (team_name or "")
-        if character.isalnum()
-    )
+    return "".join(character.lower() for character in (team_name or "") if character.isalnum())
 
 
 def find_espn_game(game: dict, espn_games: list[dict]) -> dict | None:
@@ -87,9 +77,7 @@ def game_date_eastern(game: dict, fallback_date: datetime.date) -> str:
         return fallback_date.isoformat()
 
     try:
-        parsed = datetime.datetime.fromisoformat(
-            raw_datetime.replace("Z", "+00:00")
-        )
+        parsed = datetime.datetime.fromisoformat(raw_datetime.replace("Z", "+00:00"))
 
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=datetime.timezone.utc)
@@ -134,21 +122,13 @@ def kelly_fraction(
     confidence: str,
 ) -> float:
     """Return confidence-scaled Kelly fraction, capped at a conservative 5%."""
-    decimal_profit = (
-        american_odds / 100.0
-        if american_odds > 0
-        else 100.0 / abs(american_odds)
-    )
+    decimal_profit = american_odds / 100.0 if american_odds > 0 else 100.0 / abs(american_odds)
 
     if decimal_profit <= 0:
         return 0.0
 
     full_kelly = max(
-        (
-            decimal_profit * probability
-            - (1.0 - probability)
-        )
-        / decimal_profit,
+        (decimal_profit * probability - (1.0 - probability)) / decimal_profit,
         0.0,
     )
 
