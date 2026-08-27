@@ -119,6 +119,10 @@ def render_top_nav() -> None:
 
         for column, (label, page_path) in zip(nav_cols, NAV_ITEMS):
             with column:
-                st.page_link(page_path, label=label)
+                try:
+                    st.page_link(page_path, label=label)
+                except KeyError as error:
+                    if error.args != ("url_pathname",):
+                        raise
 
     st.divider()

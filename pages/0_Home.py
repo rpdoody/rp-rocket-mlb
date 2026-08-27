@@ -58,5 +58,9 @@ for row_tiles in (tiles[:3], tiles[3:6], tiles[6:]):
                     f'<div style="text-align:center;font-size:1.8rem;padding-top:4px">{icon}</div>',
                     unsafe_allow_html=True,
                 )
-                st.page_link(path, label=f"**{title}**")
+                try:
+                    st.page_link(path, label=f"**{title}**")
+                except KeyError as error:
+                    if error.args != ("url_pathname",):
+                        raise
                 st.caption(description)
