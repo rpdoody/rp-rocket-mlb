@@ -18,12 +18,12 @@ render_top_nav()
 
 ET = ZoneInfo("America/New_York")
 
-from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     READABLE_COLS,
     _load_precomputed,
 )
 from retrosheet import TEAM_NAMES, head_to_head, rolling_team_form
+from src.top_nav import inject_app_style, render_top_nav
 
 current_year = datetime.datetime.now(ET).year
 

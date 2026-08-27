@@ -20,7 +20,6 @@ from page_utils import (
     _load_game_context_cache,
     _load_precomputed,
 )
-
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
 from src.ui.recommendation_cards import _build_game_recs

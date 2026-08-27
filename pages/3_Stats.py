@@ -11,7 +11,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     READABLE_COLS,
     _load_precomputed,
@@ -23,6 +22,7 @@ from retrosheet import (
     season_team_batting,
     season_team_pitching,
 )
+from src.top_nav import inject_app_style, render_top_nav
 
 inject_app_style()
 render_top_nav()

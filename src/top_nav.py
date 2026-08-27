@@ -1,6 +1,5 @@
 import streamlit as st
 
-
 NAV_ITEMS = [
     ("Home", "pages/0_Home.py"),
     ("Today", "pages/1_Today.py"),

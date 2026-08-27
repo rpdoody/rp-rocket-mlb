@@ -11,7 +11,6 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from src.top_nav import inject_app_style, render_top_nav
 from page_utils import add_betting_oracle_footer
 from retrosheet import (
     load_batting,
@@ -20,6 +19,7 @@ from retrosheet import (
     season_batting_leaders,
     season_pitching_leaders,
 )
+from src.top_nav import inject_app_style, render_top_nav
 
 inject_app_style()
 render_top_nav()
@@ -301,11 +301,10 @@ _DK_PROP_MAP: dict[str, str] = {
 def _ocr_available() -> bool:
     """Return True only when both pytesseract and the Tesseract binary are present."""
     try:
-        import shutil
-
         # Load the optional OCR dependency dynamically so static analysis does
         # not require it to be installed for the rest of the page to run.
         import importlib
+        import shutil
 
         pytesseract = importlib.import_module("pytesseract")
 
@@ -334,8 +333,8 @@ def _parse_dk_screenshot(image_bytes: bytes) -> tuple[list[dict], str]:
     (picks, raw_ocr_text)
     Each pick dict has keys: display_name, first_initial, last_name, line, prop
     """
-    import io
     import importlib
+    import io
     import re
     import shutil
 

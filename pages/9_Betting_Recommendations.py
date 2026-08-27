@@ -9,7 +9,6 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from src.top_nav import inject_app_style, render_top_nav
 from page_utils import (
     _MLB_TO_RETRO,
     _fetch_espn_odds,
@@ -22,6 +21,7 @@ from page_utils import (
 )
 from src.ingestion.weather import fetch_forecast
 from src.models.contextual_projection import project_contextual_game
+from src.top_nav import inject_app_style, render_top_nav
 from src.ui.recommendation_cards import (
     _build_game_recs,
     _prob_bar_html,
