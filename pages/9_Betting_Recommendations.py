@@ -83,10 +83,7 @@ def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
 def is_final_game(game: dict) -> bool:
     status = str(game.get("status", "")).strip().lower()
 
-    return (
-        status in {"final", "game over", "completed"}
-        or status.startswith("final")
-    )
+    return status in {"final", "game over", "completed"} or status.startswith("final")
 
 
 def grade_recommendation(
@@ -117,13 +114,11 @@ def grade_recommendation(
     home_short = home_name.split()[-1] if home_name else ""
     away_short = away_name.split()[-1] if away_name else ""
 
-    picked_home = (
-        (home_name and home_name in pick_lower)
-        or (home_short and home_short in pick_lower)
+    picked_home = (home_name and home_name in pick_lower) or (
+        home_short and home_short in pick_lower
     )
-    picked_away = (
-        (away_name and away_name in pick_lower)
-        or (away_short and away_short in pick_lower)
+    picked_away = (away_name and away_name in pick_lower) or (
+        away_short and away_short in pick_lower
     )
 
     if market_key == "ml":
@@ -179,6 +174,7 @@ def grade_recommendation(
             return "PUSH", "↔️"
 
     return "PENDING", "⏳"
+
 
 def empty_record() -> dict[str, int]:
     return {"wins": 0, "losses": 0, "pushes": 0, "pending": 0}
@@ -496,6 +492,6 @@ with record_slot.container():
     )
 
     st.caption(
-    "Record format: W-L-P. This reflects recommendations currently calculated "
-    "on this page; use Live Model Record above for saved pregame pick history."
-)
+        "Record format: W-L-P. This reflects recommendations currently calculated "
+        "on this page; use Live Model Record above for saved pregame pick history."
+    )

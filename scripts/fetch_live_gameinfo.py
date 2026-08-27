@@ -104,10 +104,7 @@ def is_completed_game(game: dict) -> bool:
 
     status = str(game.get("status", "")).strip().lower()
 
-    is_final = (
-        status in {"final", "game over", "completed"}
-        or status.startswith("final")
-    )
+    is_final = status in {"final", "game over", "completed"} or status.startswith("final")
 
     return (
         game.get("game_type") == "R"
@@ -123,11 +120,14 @@ def fetch_completed_games(
 ) -> list[dict]:
     """Fetch schedule games and return only completed regular-season games."""
 
-    games = statsapi.schedule(
-        start_date=start_date.isoformat(),
-        end_date=end_date.isoformat(),
-        sportId=1,
-    ) or []
+    games = (
+        statsapi.schedule(
+            start_date=start_date.isoformat(),
+            end_date=end_date.isoformat(),
+            sportId=1,
+        )
+        or []
+    )
 
     return [game for game in games if is_completed_game(game)]
 
@@ -170,9 +170,7 @@ def normalize_game(game: dict) -> dict:
     home_abbr = _schedule_team_abbr(game, "home")
 
     if not away_abbr or not home_abbr:
-        raise ValueError(
-            f"Unable to identify team abbreviations for game {game.get('game_id')}."
-        )
+        raise ValueError(f"Unable to identify team abbreviations for game {game.get('game_id')}.")
 
     away_code = retro_code(away_abbr)
     home_code = retro_code(home_abbr)
@@ -181,9 +179,7 @@ def normalize_game(game: dict) -> dict:
     home_runs = int(game["home_score"])
 
     if away_runs == home_runs:
-        raise ValueError(
-            f"Completed game {game['game_id']} has an invalid tied final score."
-        )
+        raise ValueError(f"Completed game {game['game_id']} has an invalid tied final score.")
 
     return {
         "game_id": int(game["game_id"]),
@@ -204,9 +200,7 @@ def normalize_game(game: dict) -> dict:
         "game_type": game.get("game_type", "R"),
         "status": game.get("status", ""),
         "source": "mlb_stats_api",
-        "retrieved_at_utc": datetime.datetime.now(
-            datetime.timezone.utc
-        ).isoformat(),
+        "retrieved_at_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
     }
 
 
@@ -219,9 +213,7 @@ def load_existing() -> pd.DataFrame:
     try:
         return pd.read_parquet(OUTPUT_PATH)
     except Exception as exc:
-        print(
-            f"Warning: ignoring unreadable {OUTPUT_PATH.name}: {exc}"
-        )
+        print(f"Warning: ignoring unreadable {OUTPUT_PATH.name}: {exc}")
         return pd.DataFrame()
 
 
@@ -237,10 +229,7 @@ def main() -> None:
         print(f"No completed {SEASON} regular-season games are available yet.")
         return
 
-    print(
-        f"Fetching completed MLB regular-season games: "
-        f"{season_start} through {season_end}"
-    )
+    print(f"Fetching completed MLB regular-season games: {season_start} through {season_end}")
 
     games = fetch_completed_games(season_start, season_end)
 
@@ -251,9 +240,7 @@ def main() -> None:
         try:
             rows.append(normalize_game(game))
         except (KeyError, TypeError, ValueError) as exc:
-            errors.append(
-                f"Skipped game {game.get('game_id', 'unknown')}: {exc}"
-            )
+            errors.append(f"Skipped game {game.get('game_id', 'unknown')}: {exc}")
 
     if errors:
         print("\n".join(errors[:20]))
@@ -276,23 +263,14 @@ def main() -> None:
         "lteam",
     ]
 
-    missing_columns = [
-        column for column in required_columns if column not in fresh.columns
-    ]
+    missing_columns = [column for column in required_columns if column not in fresh.columns]
 
     if missing_columns:
-        raise ValueError(
-            f"Refusing to write incomplete game data; missing {missing_columns}."
-        )
+        raise ValueError(f"Refusing to write incomplete game data; missing {missing_columns}.")
 
     team_columns = ["visteam", "hometeam", "wteam", "lteam"]
 
-    blank_team_mask = (
-        fresh[team_columns]
-        .replace("", pd.NA)
-        .isna()
-        .any(axis=1)
-    )
+    blank_team_mask = fresh[team_columns].replace("", pd.NA).isna().any(axis=1)
 
     if blank_team_mask.any():
         raise ValueError(

@@ -102,6 +102,7 @@ def inject_app_style() -> None:
         unsafe_allow_html=True,
     )
 
+
 def render_top_nav() -> None:
     """Render a compact, professional shared navigation header."""
     with st.container(key="top_nav_bar"):

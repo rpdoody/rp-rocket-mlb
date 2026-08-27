@@ -84,11 +84,10 @@ def normalize_team_name(team_name: str | None) -> str:
 def is_matching_odds_game(game: dict, odds_game: dict) -> bool:
     """Match an MLB schedule game with an ESPN odds event."""
 
-    return (
-        normalize_team_name(game.get("away_name"))
-        == normalize_team_name(odds_game.get("away_team"))
-        and normalize_team_name(game.get("home_name"))
-        == normalize_team_name(odds_game.get("home_team"))
+    return normalize_team_name(game.get("away_name")) == normalize_team_name(
+        odds_game.get("away_team")
+    ) and normalize_team_name(game.get("home_name")) == normalize_team_name(
+        odds_game.get("home_team")
     )
 
 
@@ -97,10 +96,7 @@ def is_final_game(game: dict) -> bool:
 
     status = str(game.get("status", "")).strip().lower()
 
-    return (
-        status in {"final", "game over", "completed"}
-        or status.startswith("final")
-    )
+    return status in {"final", "game over", "completed"} or status.startswith("final")
 
 
 def grade_recommendation(
@@ -134,13 +130,11 @@ def grade_recommendation(
     home_short = home_name.split()[-1] if home_name else ""
     away_short = away_name.split()[-1] if away_name else ""
 
-    picked_home = (
-        (home_name and home_name in pick_lower)
-        or (home_short and home_short in pick_lower)
+    picked_home = (home_name and home_name in pick_lower) or (
+        home_short and home_short in pick_lower
     )
-    picked_away = (
-        (away_name and away_name in pick_lower)
-        or (away_short and away_short in pick_lower)
+    picked_away = (away_name and away_name in pick_lower) or (
+        away_short and away_short in pick_lower
     )
 
     if market_key == "ml":
@@ -235,10 +229,7 @@ init_session_state()
 today_et = eastern_today()
 
 st.title("🎯 Sports Picks")
-st.caption(
-    "Qualifying MLB recommendations only. "
-    f"Minimum model edge: {QUALIFYING_EDGE:.0%}."
-)
+st.caption(f"Qualifying MLB recommendations only. Minimum model edge: {QUALIFYING_EDGE:.0%}.")
 
 selected_date = st.date_input(
     "Game date",
@@ -288,8 +279,7 @@ for game in games_today:
     game_time = format_game_time_et(game.get("game_datetime", ""))
 
     weather_date = (
-        game_date_from_datetime(game.get("game_datetime", ""))
-        or selected_date.isoformat()
+        game_date_from_datetime(game.get("game_datetime", "")) or selected_date.isoformat()
     )
 
     projection = project_contextual_game(
@@ -357,8 +347,7 @@ if not qualifying_picks:
     )
 else:
     st.success(
-        f"{len(qualifying_picks)} qualifying pick"
-        f"{'s' if len(qualifying_picks) != 1 else ''} found."
+        f"{len(qualifying_picks)} qualifying pick{'s' if len(qualifying_picks) != 1 else ''} found."
     )
 
     for pick in sorted(qualifying_picks, key=lambda item: item["edge"], reverse=True):
@@ -366,9 +355,7 @@ else:
             left, right = st.columns([4, 1])
 
             with left:
-                st.markdown(
-                    f"### {pick['icon']} {pick['market']} — {pick['matchup']}"
-                )
+                st.markdown(f"### {pick['icon']} {pick['market']} — {pick['matchup']}")
                 st.markdown(
                     f"**Pick:** {pick['pick']} ({pick['odds']})  \n"
                     f"**Edge:** {pick['edge']:.1%}  \n"

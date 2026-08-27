@@ -26,9 +26,7 @@ init_session_state()
 st.title("📈 Performance")
 st.caption("Pick history, model performance, and bankroll tracking.")
 
-tab_history, tab_perf, tab_bankroll = st.tabs(
-    ["Pick History", "Model Performance", "Bankroll"]
-)
+tab_history, tab_perf, tab_bankroll = st.tabs(["Pick History", "Model Performance", "Bankroll"])
 
 backtests = st.session_state.get("eval_backtests")
 
@@ -129,12 +127,8 @@ def build_history_dataframe(
                         errors="coerce",
                     ),
                     "game_id": getattr(bet, "game_id", None),
-                    "pick_type": readable_pick_type(
-                        getattr(bet, "pick_type", None)
-                    ),
-                    "confidence": title_case(
-                        getattr(bet, "confidence", None)
-                    ),
+                    "pick_type": readable_pick_type(getattr(bet, "pick_type", None)),
+                    "confidence": title_case(getattr(bet, "confidence", None)),
                     "predicted_prob": pd.to_numeric(
                         getattr(bet, "predicted_prob", None),
                         errors="coerce",
@@ -147,9 +141,7 @@ def build_history_dataframe(
                         getattr(bet, "american_odds", None),
                         errors="coerce",
                     ),
-                    "result": normalize_result(
-                        getattr(bet, "result", None)
-                    ),
+                    "result": normalize_result(getattr(bet, "result", None)),
                     "profit_units": pd.to_numeric(
                         getattr(bet, "profit_units", None),
                         errors="coerce",
@@ -261,9 +253,7 @@ def load_live_pick_history() -> pd.DataFrame:
         if "game_id" not in live_history.columns:
             live_history["game_id"] = pd.NA
 
-        return live_history[required_columns].dropna(
-            subset=["date"]
-        ).copy()
+        return live_history[required_columns].dropna(subset=["date"]).copy()
 
     except Exception as exc:
         st.warning(f"Could not load live pick history: {exc}")
@@ -318,9 +308,7 @@ with tab_history:
         fc1, fc2, fc3, fc4 = st.columns(4)
 
         with fc1:
-            model_options = ["All"] + sorted(
-                history_df["model"].dropna().unique().tolist()
-            )
+            model_options = ["All"] + sorted(history_df["model"].dropna().unique().tolist())
             selected_model = st.selectbox(
                 "Model",
                 model_options,
@@ -331,9 +319,7 @@ with tab_history:
             selected_result = st.selectbox(
                 "Result",
                 ["All", "win", "loss", "push", "pending"],
-                format_func=lambda value: (
-                    "All" if value == "All" else value.title()
-                ),
+                format_func=lambda value: "All" if value == "All" else value.title(),
                 key="performance_result_filter",
             )
 
@@ -348,9 +334,7 @@ with tab_history:
             )
 
         with fc4:
-            pick_type_options = ["All"] + sorted(
-                history_df["pick_type"].dropna().unique().tolist()
-            )
+            pick_type_options = ["All"] + sorted(history_df["pick_type"].dropna().unique().tolist())
             selected_pick_type = st.selectbox(
                 "Pick type",
                 pick_type_options,
@@ -361,9 +345,7 @@ with tab_history:
 
         if isinstance(selected_dates, tuple) and len(selected_dates) == 2:
             start_date, end_date = selected_dates
-            filtered = filtered[
-                filtered["date"].dt.date.between(start_date, end_date)
-            ].copy()
+            filtered = filtered[filtered["date"].dt.date.between(start_date, end_date)].copy()
 
         if selected_model != "All":
             filtered = filtered[filtered["model"] == selected_model]
@@ -372,18 +354,12 @@ with tab_history:
             filtered = filtered[filtered["result"] == selected_result]
 
         if selected_confidence != "All":
-            filtered = filtered[
-                filtered["confidence"] == selected_confidence
-            ]
+            filtered = filtered[filtered["confidence"] == selected_confidence]
 
         if selected_pick_type != "All":
-            filtered = filtered[
-                filtered["pick_type"] == selected_pick_type
-            ]
+            filtered = filtered[filtered["pick_type"] == selected_pick_type]
 
-        settled = filtered[
-            filtered["result"].isin(["win", "loss", "push"])
-        ].copy()
+        settled = filtered[filtered["result"].isin(["win", "loss", "push"])].copy()
 
         total_picks = len(filtered)
         settled_bets = len(settled)
@@ -394,16 +370,8 @@ with tab_history:
 
         win_rate = wins / (wins + losses) if (wins + losses) else 0.0
         total_units = float(filtered["profit_units"].sum())
-        avg_edge = (
-            float(filtered["edge"].mean())
-            if not filtered.empty
-            else 0.0
-        )
-        roi_per_bet = (
-            total_units / settled_bets
-            if settled_bets
-            else 0.0
-        )
+        avg_edge = float(filtered["edge"].mean()) if not filtered.empty else 0.0
+        roi_per_bet = total_units / settled_bets if settled_bets else 0.0
 
         m1, m2, m3, m4, m5, m6 = st.columns(6)
 
@@ -414,10 +382,7 @@ with tab_history:
         m5.metric("ROI / Bet", f"{roi_per_bet:+.2%}")
         m6.metric("Pending", pending)
 
-        st.caption(
-            f"Settled bets: {settled_bets:,} · "
-            f"Average model edge: {avg_edge:.1%}"
-        )
+        st.caption(f"Settled bets: {settled_bets:,} · Average model edge: {avg_edge:.1%}")
 
         st.divider()
 
@@ -427,9 +392,7 @@ with tab_history:
                 ascending=[True, True],
             ).copy()
 
-            cumulative["cumulative_units"] = (
-                cumulative.groupby("model")["profit_units"].cumsum()
-            )
+            cumulative["cumulative_units"] = cumulative.groupby("model")["profit_units"].cumsum()
 
             pnl_figure = px.line(
                 cumulative,
@@ -472,25 +435,17 @@ with tab_history:
             ].copy()
 
             display_df["date"] = display_df["date"].dt.strftime("%Y-%m-%d")
-            display_df["predicted_prob"] = display_df[
-                "predicted_prob"
-            ].map(
-                lambda value: (
-                    f"{value:.1%}" if pd.notna(value) else "—"
-                )
+            display_df["predicted_prob"] = display_df["predicted_prob"].map(
+                lambda value: f"{value:.1%}" if pd.notna(value) else "—"
             )
             display_df["edge"] = display_df["edge"].map(
-                lambda value: (
-                    f"{value:+.1%}" if pd.notna(value) else "—"
-                )
+                lambda value: f"{value:+.1%}" if pd.notna(value) else "—"
             )
-            display_df["american_odds"] = display_df[
-                "american_odds"
-            ].map(format_american_odds)
+            display_df["american_odds"] = display_df["american_odds"].map(format_american_odds)
             display_df["result"] = display_df["result"].str.title()
-            display_df["profit_units"] = display_df[
-                "profit_units"
-            ].map(lambda value: f"{value:+.2f}")
+            display_df["profit_units"] = display_df["profit_units"].map(
+                lambda value: f"{value:+.2f}"
+            )
 
             display_df = (
                 display_df.rename(
@@ -528,9 +483,7 @@ with tab_history:
 # ── Model Performance ─────────────────────────────────────────────────────────
 with tab_perf:
     st.subheader("Model Performance")
-    st.markdown(
-        "Backtest-derived profitability and calibration-ready performance metrics."
-    )
+    st.markdown("Backtest-derived profitability and calibration-ready performance metrics.")
 
     if not backtests:
         st.info(
@@ -552,14 +505,10 @@ with tab_perf:
             st.info("No readable model summaries are available.")
         else:
             if "model" in leaderboard.columns:
-                leaderboard["model"] = leaderboard["model"].map(
-                    title_case
-                )
+                leaderboard["model"] = leaderboard["model"].map(title_case)
 
             if "pick_type" in leaderboard.columns:
-                leaderboard["pick_type"] = leaderboard[
-                    "pick_type"
-                ].map(readable_pick_type)
+                leaderboard["pick_type"] = leaderboard["pick_type"].map(readable_pick_type)
 
             if "period" in leaderboard.columns:
                 leaderboard["period"] = (
@@ -596,20 +545,14 @@ with tab_perf:
             }
 
             existing_columns = [
-                column
-                for column in leaderboard_columns
-                if column in leaderboard.columns
+                column for column in leaderboard_columns if column in leaderboard.columns
             ]
 
             st.dataframe(
-                leaderboard[existing_columns].rename(
-                    columns=leaderboard_columns
-                ),
+                leaderboard[existing_columns].rename(columns=leaderboard_columns),
                 hide_index=True,
                 width="stretch",
-                height=get_dataframe_height(
-                    leaderboard[existing_columns]
-                ),
+                height=get_dataframe_height(leaderboard[existing_columns]),
             )
 
         if history_df.empty:
@@ -622,9 +565,9 @@ with tab_perf:
                 ascending=[True, True],
             ).copy()
 
-            performance_df["cumulative_units"] = (
-                performance_df.groupby("model")["profit_units"].cumsum()
-            )
+            performance_df["cumulative_units"] = performance_df.groupby("model")[
+                "profit_units"
+            ].cumsum()
 
             performance_figure = px.line(
                 performance_df,
@@ -654,9 +597,7 @@ with tab_perf:
             ].copy()
 
             if settled_performance.empty:
-                st.info(
-                    "No settled bets are available for confidence-tier analysis."
-                )
+                st.info("No settled bets are available for confidence-tier analysis.")
             else:
                 tier_summary = (
                     settled_performance.groupby(
@@ -683,8 +624,7 @@ with tab_perf:
                 )
 
                 tier_summary["win_rate"] = (
-                    tier_summary["wins"]
-                    / (tier_summary["wins"] + tier_summary["losses"])
+                    tier_summary["wins"] / (tier_summary["wins"] + tier_summary["losses"])
                 ).fillna(0.0)
 
                 tier_summary["roi_per_bet"] = (
@@ -792,9 +732,7 @@ with tab_bankroll:
 
         implied_probability = _american_to_implied_prob(american_odds)
 
-        st.caption(
-            f"Implied probability: {implied_probability:.1%}"
-        )
+        st.caption(f"Implied probability: {implied_probability:.1%}")
 
         default_probability = min(
             max(round(implied_probability + 0.04, 2), 0.01),
@@ -845,9 +783,7 @@ with tab_bankroll:
         st.markdown("#### Historical Bankroll Simulation")
 
         if history_df.empty:
-            st.info(
-                "No settled pick history is available for a bankroll simulation."
-            )
+            st.info("No settled pick history is available for a bankroll simulation.")
         else:
             model_names = sorted(history_df["model"].unique().tolist())
 
@@ -875,39 +811,27 @@ with tab_bankroll:
                 key="performance_simulation_unit",
             )
 
-            simulation_df = history_df[
-                history_df["model"] == simulation_model
-            ].copy()
+            simulation_df = history_df[history_df["model"] == simulation_model].copy()
 
             simulation_df = simulation_df[
                 simulation_df["result"].isin(["win", "loss", "push"])
             ].copy()
 
-            simulation_df = simulation_df.sort_values("date").reset_index(
-                drop=True
-            )
+            simulation_df = simulation_df.sort_values("date").reset_index(drop=True)
 
             if simulation_df.empty:
-                st.info(
-                    "No settled bets are available for this model."
-                )
+                st.info("No settled bets are available for this model.")
             else:
-                simulation_df["pnl_dollars"] = (
-                    simulation_df["profit_units"] * simulation_unit
-                )
+                simulation_df["pnl_dollars"] = simulation_df["profit_units"] * simulation_unit
 
                 simulation_df["bankroll"] = (
-                    starting_bankroll
-                    + simulation_df["pnl_dollars"].cumsum()
+                    starting_bankroll + simulation_df["pnl_dollars"].cumsum()
                 )
 
-                simulation_df["running_peak"] = (
-                    simulation_df["bankroll"].cummax()
-                )
+                simulation_df["running_peak"] = simulation_df["bankroll"].cummax()
 
                 simulation_df["drawdown"] = (
-                    simulation_df["bankroll"]
-                    - simulation_df["running_peak"]
+                    simulation_df["bankroll"] - simulation_df["running_peak"]
                 ) / simulation_df["running_peak"].clip(lower=1)
 
                 simulation_figure = go.Figure()
