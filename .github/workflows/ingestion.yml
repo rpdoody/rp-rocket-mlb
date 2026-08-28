@@ -18,6 +18,8 @@ jobs:
     steps:
       - uses: actions/checkout@v6
         with:
+          ref: main
+          fetch-depth: 0
           persist-credentials: true
 
       - name: Configure GitHub Actions push access
@@ -73,8 +75,9 @@ jobs:
 
       - name: Commit precomputed data and current-season supplements
         run: |
+          set -euo pipefail
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
+          git config --local user.name "github-actions[bot]"
           git add data_files/processed/
           git add data_files/retrosheet/*_current.parquet 2>/dev/null || true
 
@@ -84,19 +87,7 @@ jobs:
           fi
 
           git commit -m "chore: update precomputed data and season supplements [skip ci]"
-
-          for attempt in 1 2 3; do
-            if git push; then
-              exit 0
-            fi
-            echo "Push raced with another writer; syncing with origin before retry ${attempt}/3..."
-            git fetch origin "${GITHUB_REF_NAME}"
-            git reset --soft "origin/${GITHUB_REF_NAME}"
-            git commit -m "chore: update precomputed data and season supplements [skip ci]"
-          done
-          echo "Unable to push generated artifact after 3 attempts."
-          exit 1
-        continue-on-error: true
+          git push origin HEAD:main
 
       - name: Train models (season-aware)
         env:
@@ -179,8 +170,9 @@ jobs:
       - name: Commit best_bets_today.json
         if: always()
         run: |
+          set -euo pipefail
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
-          git config --local user.name  "github-actions[bot]"
+          git config --local user.name "github-actions[bot]"
           git add data_files/best_bets_today.json
 
           if git diff --staged --quiet; then
@@ -189,15 +181,4 @@ jobs:
           fi
 
           git commit -m "chore: update best_bets_today [skip ci]"
-
-          for attempt in 1 2 3; do
-            if git push; then
-              exit 0
-            fi
-            echo "Push raced with another writer; syncing with origin before retry ${attempt}/3..."
-            git fetch origin "${GITHUB_REF_NAME}"
-            git reset --soft "origin/${GITHUB_REF_NAME}"
-            git commit -m "chore: update best_bets_today [skip ci]"
-          done
-          echo "Unable to push generated artifact after 3 attempts."
-          exit 1
+          git push origin HEAD:main
