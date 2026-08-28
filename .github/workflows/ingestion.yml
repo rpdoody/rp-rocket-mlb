@@ -9,8 +9,8 @@ permissions:
   contents: write
 
 concurrency:
-  group: daily-ingestion-${{ github.ref }}
-  cancel-in-progress: true
+  group: repository-data-writes
+  cancel-in-progress: false
 
 jobs:
   ingest:
