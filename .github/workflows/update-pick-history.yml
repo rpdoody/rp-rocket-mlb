@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: update-mlb-pick-history
+  group: rp-rocket-mlb-data-writers
   cancel-in-progress: false
 
 jobs:
