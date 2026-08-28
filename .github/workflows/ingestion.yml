@@ -77,18 +77,22 @@ jobs:
           git config --local user.name  "github-actions[bot]"
           git add data_files/processed/
           git add data_files/retrosheet/*_current.parquet 2>/dev/null || true
-          git diff --staged --quiet || git commit -m "chore: update precomputed data and season supplements [skip ci]"
+
+          if git diff --staged --quiet; then
+            echo "No precomputed data changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: update precomputed data and season supplements [skip ci]"
+
           for attempt in 1 2 3; do
             if git push; then
               exit 0
             fi
-            echo "Push raced with another writer; rebasing before retry ${attempt}/3..."
-            git pull --rebase origin "${GITHUB_REF_NAME}" || {
-              # Resolve conflicts by taking our version for binary parquet files
-              git checkout --ours data_files/retrosheet/*.parquet
-              git add data_files/retrosheet/*.parquet
-              git rebase --continue
-            }
+            echo "Push raced with another writer; syncing with origin before retry ${attempt}/3..."
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --soft "origin/${GITHUB_REF_NAME}"
+            git commit -m "chore: update precomputed data and season supplements [skip ci]"
           done
           echo "Unable to push generated artifact after 3 attempts."
           exit 1
@@ -178,13 +182,22 @@ jobs:
           git config --local user.email "github-actions[bot]@users.noreply.github.com"
           git config --local user.name  "github-actions[bot]"
           git add data_files/best_bets_today.json
-          git diff --staged --quiet || git commit -m "chore: update best_bets_today [skip ci]"
+
+          if git diff --staged --quiet; then
+            echo "No best_bets_today.json changes to commit."
+            exit 0
+          fi
+
+          git commit -m "chore: update best_bets_today [skip ci]"
+
           for attempt in 1 2 3; do
             if git push; then
               exit 0
             fi
-            echo "Push raced with another writer; rebasing before retry ${attempt}/3..."
-            git pull --rebase origin "${GITHUB_REF_NAME}"
+            echo "Push raced with another writer; syncing with origin before retry ${attempt}/3..."
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset --soft "origin/${GITHUB_REF_NAME}"
+            git commit -m "chore: update best_bets_today [skip ci]"
           done
           echo "Unable to push generated artifact after 3 attempts."
           exit 1
