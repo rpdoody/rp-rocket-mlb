@@ -83,7 +83,12 @@ jobs:
               exit 0
             fi
             echo "Push raced with another writer; rebasing before retry ${attempt}/3..."
-            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git pull --rebase origin "${GITHUB_REF_NAME}" || {
+              # Resolve conflicts by taking our version for binary parquet files
+              git checkout --ours data_files/retrosheet/*.parquet
+              git add data_files/retrosheet/*.parquet
+              git rebase --continue
+            }
           done
           echo "Unable to push generated artifact after 3 attempts."
           exit 1
