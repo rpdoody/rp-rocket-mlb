@@ -14,7 +14,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: capture-pregame-odds
+  group: rp-rocket-mlb-data-writers
   cancel-in-progress: false
   
 jobs:
