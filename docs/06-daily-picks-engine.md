@@ -28,13 +28,22 @@ Orchestrates the end-to-end flow: fetch today's data → run models → output p
 
 
 ```python
-# src/picks/daily_pipeline.py
+# src/ingestion/mlb_stats.py
+def fetch_probable_pitchers(target_date: date) -> pd.DataFrame:
+    ...
+
 """Daily picks generation pipeline."""
 
 import pandas as pd
 import numpy as np
 import logging
 from datetime import datetime, date
+from zoneinfo import ZoneInfo
+
+MLB_TZ = ZoneInfo("America/New_York")
+
+def run_daily_pipeline(target_date: Optional[date] = None) -> dict:
+    target_date = target_date or datetime.now(MLB_TZ).date()
 from pathlib import Path
 from typing import Optional
 
@@ -71,7 +80,7 @@ def run_daily_pipeline(
     logger.info(f"Running daily pipeline for {target_date}")
     
     # ---- Step 1: Fetch today's schedule ----
-    schedule = fetch_todays_probable_pitchers()
+    schedule = fetch_probable_pitchers(target_date)
     if schedule.empty:
         logger.warning("No games found for today")
         return {"underdog": [], "spread": [], "over_under": []}
