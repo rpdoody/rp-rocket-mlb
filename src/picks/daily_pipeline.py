@@ -15,208 +15,341 @@ job can compare lines and detect significant movement.
 
 from __future__ import annotations
 
-import json
 import logging
-import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
+from typing import Optional
+from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 
-from src.ingestion.mlb_stats import fetch_todays_probable_pitchers
+from src.ingestion.mlb_stats import fetch_probable_pitchers
 from src.ingestion.odds import fetch_current_odds, get_consensus_line
 from src.ingestion.weather import fetch_weather_for_games
-from src.models.features import MONEYLINE_FEATURES, SPREAD_FEATURES, TOTALS_FEATURES
-from src.models.manifest import quarantine_reason
+from src.models.features import (
+    SPREAD_FEATURES,
+    TOTAL_FEATURES,
+    UNDERDOG_FEATURES,
+)
+from src.models.underdog_model import predict_underdog
 from src.models.spread_model import predict_spread
 from src.models.totals_model import predict_totals
-from src.models.underdog_model import predict_moneyline
 
 logger = logging.getLogger(__name__)
 
-MODEL_DIR = Path(__file__).resolve().parents[2] / "models"
-TOTALS_MODEL_FILENAME = "totals_xgb_v1.joblib"
-PROCESSED_DIR = Path(__file__).resolve().parents[2] / "data_files" / "processed"
-PICKS_TODAY_PATH = PROCESSED_DIR / "picks_today.csv"
-PICKS_METADATA_PATH = PROCESSED_DIR / "picks_today.meta.json"
-MODEL_FEATURES_PATH = PROCESSED_DIR / "model_features.parquet"
-PICK_COLUMNS = [
-    "game_id",
-    "away_team",
-    "home_team",
-    "pick_type",
-    "pick_value",
-    "selection",
-    "predicted_prob",
-    "confidence_score",
-    "edge",
-    "expected_value",
-    "odds",
-    "line",
-    "book",
-    "quote_time",
-    "snapshot_id",
-    "model_version",
-    "game_date",
-    "source",
-]
+MLB_TZ = ZoneInfo("America/New_York")
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+MODEL_DIR = PROJECT_ROOT / "models"
+PROCESSED_DIR = PROJECT_ROOT / "data_files" / "processed"
 
-# Minimum thresholds to publish a pick
+# Minimum thresholds to publish a pick.
 MIN_EDGE_UNDERDOG = 0.03
 MIN_EDGE_SPREAD = 0.03
 MIN_EDGE_TOTALS = 0.025
 MIN_CONFIDENCE = 0.30
 
 
-# ---------------------------------------------------------------------------
-# Public entry point
-# ---------------------------------------------------------------------------
+def run_daily_pipeline(
+    target_date: Optional[date] = None,
+) -> dict[str, list[dict]]:
+    """Run the daily MLB picks pipeline for a specified MLB schedule date.
 
+    The default date is resolved in America/New_York so GitHub Actions'
+    UTC clock does not accidentally shift an MLB slate to the next day.
 
-def run_daily_pipeline(target_date: date | None = None) -> dict:
-    """Run the full morning picks-generation pipeline.
+    Args:
+        target_date: MLB schedule date to process. Defaults to today in ET.
 
     Returns:
-        dict with keys ``underdog``, ``spread``, ``over_under``, each a
-        list of pick dicts.
+        Dictionary containing eligible picks by market type.
     """
-    target_date = target_date or date.today()
-    logger.info("Running daily pipeline for %s", target_date)
+    target_date = target_date or datetime.now(MLB_TZ).date()
+    logger.info("Running daily picks pipeline for %s", target_date)
 
-    # ---- 1. Schedule --------------------------------------------------------
-    schedule = fetch_todays_probable_pitchers(target_date)
+    # ---- Step 1: Fetch target-date schedule and probable pitchers ----
+    schedule = fetch_probable_pitchers(target_date)
+
     if schedule.empty:
-        logger.warning("No games found for today")
-        _write_pick_artifacts(
-            {}, target_date, status="no_games", notes="No games were found on the target date."
-        )
-        return {"underdog": [], "spread": [], "over_under": []}
-    logger.info("Found %d games today", len(schedule))
-    artifacts = [
-        MODEL_DIR / "moneyline_xgb_v1.joblib",
-        MODEL_DIR / "spread_xgb_v1.joblib",
-        MODEL_DIR / TOTALS_MODEL_FILENAME,
-    ]
-    incompatible = {
-        artifact.name: quarantine_reason(artifact, artifact.with_suffix(".manifest.json"))
-        for artifact in artifacts
-    }
-    incompatible = {name: reason for name, reason in incompatible.items() if reason}
-    if incompatible:
-        notes = "Validated model bundle unavailable: " + ", ".join(
-            f"{name}={reason}" for name, reason in incompatible.items()
-        )
-        logger.error(notes)
-        _write_pick_artifacts({}, target_date, status="model_incompatible", notes=notes)
-        return {"underdog": [], "spread": [], "over_under": []}
+        logger.warning("No games found for %s", target_date)
+        return _empty_picks()
 
-    # ---- 2. Odds ------------------------------------------------------------
-    odds_raw = fetch_current_odds(target_date=target_date)
+    _require_columns(
+        schedule,
+        ["game_id", "away_team", "home_team"],
+        context="schedule",
+    )
+
+    logger.info("Found %d scheduled games for %s", len(schedule), target_date)
+
+    # ---- Step 2: Fetch and normalize available market odds ----
+    odds_raw = fetch_current_odds()
+    if odds_raw.empty:
+        logger.warning("No odds returned for %s; no picks will be published", target_date)
+        return _empty_picks()
+
     consensus = get_consensus_line(odds_raw)
-
-    # Persist morning snapshot so afternoon_refresh can detect movement
-    _save_consensus_snapshot(consensus, target_date, label="morning")
+    if consensus.empty:
+        logger.warning("No consensus odds available for %s", target_date)
+        return _empty_picks()
 
     game_odds = _pivot_odds(consensus)
 
-    # ---- 3. Weather ---------------------------------------------------------
+    # ---- Step 3: Fetch game-specific weather ----
     weather = fetch_weather_for_games(schedule)
 
-    # ---- 4. Feature matrix --------------------------------------------------
-    features = _build_todays_features(schedule, game_odds, weather)
-
-    # ---- 5 & 6. Models + filtering ------------------------------------------
-    picks: dict = {}
-
-    try:
-        underdog_preds = predict_moneyline(
-            model_or_path=artifacts[0],
-            game_features=features,
-            home_ml_col="home_moneyline",
-            away_ml_col="away_moneyline",
-        )
-        picks["underdog"] = _format_picks(
-            _filter_picks(underdog_preds, MIN_EDGE_UNDERDOG, MIN_CONFIDENCE), "underdog"
-        )
-        spread_preds = predict_spread(
-            model_or_path=artifacts[1],
-            game_features=features,
-            spread_price_col="home_spread_price",
-            away_spread_price_col="away_spread_price",
-            home_point_col="home_spread_point",
-            away_point_col="away_spread_point",
-        )
-        picks["spread"] = _format_picks(
-            _filter_picks(spread_preds, MIN_EDGE_SPREAD, MIN_CONFIDENCE), "spread"
-        )
-        totals_preds = predict_totals(
-            model_or_path=artifacts[2],
-            game_features=features,
-            over_price_col="over_price",
-            under_price_col="under_price",
-        )
-        picks["over_under"] = _format_picks(
-            _filter_picks(totals_preds, MIN_EDGE_TOTALS, MIN_CONFIDENCE), "over_under"
-        )
-    except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        notes = f"Validated model bundle failed closed: {type(exc).__name__}: {exc}"
-        logger.exception(notes)
-        _write_pick_artifacts({}, target_date, status="model_incompatible", notes=notes)
-        return {"underdog": [], "spread": [], "over_under": []}
-
-    # ---- 7. Storage ---------------------------------------------------------
-    total = sum(len(v) for v in picks.values())
-    status = "ok" if total else "no_qualifying_picks"
-    notes = (
-        ""
-        if total
-        else "Games and odds were processed; no pick cleared the configured edge threshold."
+    # ---- Step 4: Build model feature matrix ----
+    features = _build_todays_features(
+        schedule=schedule,
+        odds=game_odds,
+        weather=weather,
     )
-    _store_picks(picks, target_date, source="morning", status=status, notes=notes)
+
+    if features.empty:
+        logger.warning("Feature matrix is empty for %s", target_date)
+        return _empty_picks()
+
+    # ---- Step 5: Run market-specific prediction models ----
+    picks: dict[str, list[dict]] = {}
+
+    _validate_model_features(
+        features=features,
+        required_features=UNDERDOG_FEATURES,
+        model_name="underdog",
+    )
+    underdog_predictions = predict_underdog(
+        model_path=str(MODEL_DIR / "underdog_xgb_v1.joblib"),
+        game_features=features,
+    )
+    underdog_picks = _filter_picks(
+        predictions=underdog_predictions,
+        min_edge=MIN_EDGE_UNDERDOG,
+        min_confidence=MIN_CONFIDENCE,
+    )
+    picks["underdog"] = _format_picks(
+        df=underdog_picks,
+        pick_type="underdog",
+        target_date=target_date,
+    )
+
+    _validate_model_features(
+        features=features,
+        required_features=SPREAD_FEATURES,
+        model_name="spread",
+    )
+    spread_predictions = predict_spread(
+        model_path=str(MODEL_DIR / "spread_xgb_v1.joblib"),
+        game_features=features,
+    )
+    spread_picks = _filter_picks(
+        predictions=spread_predictions,
+        min_edge=MIN_EDGE_SPREAD,
+        min_confidence=MIN_CONFIDENCE,
+    )
+    picks["spread"] = _format_picks(
+        df=spread_picks,
+        pick_type="spread",
+        target_date=target_date,
+    )
+
+    _validate_model_features(
+        features=features,
+        required_features=TOTAL_FEATURES,
+        model_name="totals",
+    )
+    totals_predictions = predict_totals(
+        model_path=str(MODEL_DIR / "totals_xgb_v1.joblib"),
+        game_features=features,
+    )
+    totals_picks = _filter_picks(
+        predictions=totals_predictions,
+        min_edge=MIN_EDGE_TOTALS,
+        min_confidence=MIN_CONFIDENCE,
+    )
+    picks["over_under"] = _format_picks(
+        df=totals_picks,
+        pick_type="over_under",
+        target_date=target_date,
+    )
+
+    # ---- Step 6: Persist picks and audit snapshot ----
+    _store_picks(
+        picks=picks,
+        target_date=target_date,
+    )
+
+    # ---- Step 7: Summary ----
+    total_picks = sum(len(pick_list) for pick_list in picks.values())
+
     logger.info(
-        "Generated %d picks: %d underdog, %d spread, %d O/U",
-        total,
+        "Generated %d picks for %s: %d underdog, %d spread, %d O/U",
+        total_picks,
+        target_date,
         len(picks["underdog"]),
         len(picks["spread"]),
         len(picks["over_under"]),
     )
+
     return picks
 
 
-# ---------------------------------------------------------------------------
-# Internal helpers (also imported by afternoon_refresh)
-# ---------------------------------------------------------------------------
+def _empty_picks() -> dict[str, list[dict]]:
+    """Return the standard empty pipeline response."""
+    return {
+        "underdog": [],
+        "spread": [],
+        "over_under": [],
+    }
 
 
 def _pivot_odds(consensus: pd.DataFrame) -> pd.DataFrame:
-    """Pivot consensus odds into one wide row per game."""
-    games = consensus[["game_id", "away_team", "home_team"]].drop_duplicates().copy()
+    """Pivot consensus odds from long format into one row per game.
 
-    for _, row in consensus[consensus["market"] == "h2h"].iterrows():
-        mask = games["game_id"] == row["game_id"]
-        col = (
-            "home_moneyline"
-            if row["outcome_name"] == row.get("home_team", "")
-            else "away_moneyline"
+    Expected consensus input fields:
+        game_id, away_team, home_team, market, outcome_name,
+        median_price, median_point.
+
+    Returns:
+        One row per game containing moneyline, spread, and total fields.
+    """
+    required_columns = [
+        "game_id",
+        "away_team",
+        "home_team",
+        "market",
+        "outcome_name",
+        "median_price",
+    ]
+    _require_columns(consensus, required_columns, context="consensus odds")
+
+    games = consensus[
+        ["game_id", "away_team", "home_team"]
+    ].drop_duplicates(
+        subset=["game_id"]
+    ).copy()
+
+    # ---- Moneyline ----
+    moneyline = consensus.loc[
+        consensus["market"].eq("h2h")
+    ].copy()
+
+    if not moneyline.empty:
+        home_moneyline = moneyline.loc[
+            moneyline["outcome_name"].eq(moneyline["home_team"]),
+            ["game_id", "median_price"],
+        ].rename(
+            columns={"median_price": "home_moneyline"}
         )
-        games.loc[mask, col] = row["median_price"]
 
-    for _, row in consensus[consensus["market"] == "spreads"].iterrows():
-        mask = games["game_id"] == row["game_id"]
-        if row["outcome_name"] == row.get("home_team", ""):
-            games.loc[mask, "home_spread_point"] = row["median_point"]
-            games.loc[mask, "home_spread_price"] = row["median_price"]
-        else:
-            games.loc[mask, "away_spread_point"] = row["median_point"]
-            games.loc[mask, "away_spread_price"] = row["median_price"]
+        away_moneyline = moneyline.loc[
+            moneyline["outcome_name"].eq(moneyline["away_team"]),
+            ["game_id", "median_price"],
+        ].rename(
+            columns={"median_price": "away_moneyline"}
+        )
 
-    for _, row in consensus[consensus["market"] == "totals"].iterrows():
-        mask = games["game_id"] == row["game_id"]
-        if row["outcome_name"] == "Over":
-            games.loc[mask, "posted_total"] = row["median_point"]
-            games.loc[mask, "over_price"] = row["median_price"]
-        else:
-            games.loc[mask, "under_price"] = row["median_price"]
+        games = games.merge(
+            home_moneyline.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
+
+        games = games.merge(
+            away_moneyline.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
+
+    # ---- Run line / spread ----
+    spreads = consensus.loc[
+        consensus["market"].eq("spreads")
+    ].copy()
+
+    if not spreads.empty:
+        _require_columns(
+            spreads,
+            ["median_point"],
+            context="spread consensus odds",
+        )
+
+        home_spread = spreads.loc[
+            spreads["outcome_name"].eq(spreads["home_team"]),
+            ["game_id", "median_point", "median_price"],
+        ].rename(
+            columns={
+                "median_point": "home_spread_point",
+                "median_price": "home_spread_price",
+            }
+        )
+
+        away_spread = spreads.loc[
+            spreads["outcome_name"].eq(spreads["away_team"]),
+            ["game_id", "median_point", "median_price"],
+        ].rename(
+            columns={
+                "median_point": "away_spread_point",
+                "median_price": "away_spread_price",
+            }
+        )
+
+        games = games.merge(
+            home_spread.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
+
+        games = games.merge(
+            away_spread.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
+
+    # ---- Totals ----
+    totals = consensus.loc[
+        consensus["market"].eq("totals")
+    ].copy()
+
+    if not totals.empty:
+        _require_columns(
+            totals,
+            ["median_point"],
+            context="totals consensus odds",
+        )
+
+        over_total = totals.loc[
+            totals["outcome_name"].eq("Over"),
+            ["game_id", "median_point", "median_price"],
+        ].rename(
+            columns={
+                "median_point": "posted_total",
+                "median_price": "over_price",
+            }
+        )
+
+        under_total = totals.loc[
+            totals["outcome_name"].eq("Under"),
+            ["game_id", "median_price"],
+        ].rename(
+            columns={"median_price": "under_price"}
+        )
+
+        games = games.merge(
+            over_total.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
+
+        games = games.merge(
+            under_total.drop_duplicates(subset=["game_id"]),
+            on="game_id",
+            how="left",
+            validate="one_to_one",
+        )
 
     return games
 
@@ -226,294 +359,291 @@ def _build_todays_features(
     odds: pd.DataFrame,
     weather: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Build today's rows with the same feature schema used during training.
+    """Merge schedule, odds, and weather into the model feature matrix.
 
-    Current-season precomputed rows provide the latest available team-level
-    statistics. Features that are game-specific or unavailable live use the
-    corresponding historical median, with a neutral zero fallback.
+    Odds are joined by game_id plus teams, rather than team names alone.
+    This avoids accidental odds assignments for doubleheaders or duplicate
+    matchups in source data.
     """
-    features = schedule.merge(odds, on=["away_team", "home_team"], how="left")
-    if "game_id" not in features.columns:
-        if "game_id_x" in features.columns:
-            features = features.rename(columns={"game_id_x": "game_id"})
-            if "game_id_y" in features.columns:
-                features = features.drop(columns=["game_id_y"])
-        elif "game_id_y" in features.columns:
-            features = features.rename(columns={"game_id_y": "game_id"})
+    _require_columns(
+        schedule,
+        ["game_id", "away_team", "home_team"],
+        context="schedule",
+    )
+    _require_columns(
+        odds,
+        ["game_id", "away_team", "home_team"],
+        context="pivoted odds",
+    )
 
-    if not weather.empty:
-        weather_cols = [
-            c
-            for c in ["game_id", "temp_f", "wind_mph", "wind_dir_deg", "precip_prob_pct", "is_dome"]
-            if c in weather.columns
+    features = schedule.merge(
+        odds,
+        on=["game_id", "away_team", "home_team"],
+        how="left",
+        validate="one_to_one",
+    )
+
+    if weather is not None and not weather.empty:
+        weather_columns = [
+            "game_id",
+            "temp_f",
+            "wind_mph",
+            "wind_dir_deg",
+            "precip_prob_pct",
+            "is_dome",
         ]
-        if "game_id" in weather_cols:
-            features = features.merge(weather[weather_cols], on="game_id", how="left")
-    # Defragment after the schedule/odds/weather merges before adding the
-    # wide live feature matrix below.
-    features = features.copy()
 
-    if "temp_f" in features.columns:
-        features["temp"] = pd.to_numeric(features["temp_f"], errors="coerce")
-    if "wind_mph" in features.columns:
-        features["windspeed"] = pd.to_numeric(features["wind_mph"], errors="coerce")
-    if "is_day" not in features.columns:
-        features["is_day"] = 1.0
+        available_weather_columns = [
+            column
+            for column in weather_columns
+            if column in weather.columns
+        ]
 
-    if MODEL_FEATURES_PATH.exists():
-        baseline = pd.read_parquet(MODEL_FEATURES_PATH)
-        _merge_latest_team_features(features, baseline)
-    else:
-        logger.warning("%s not found; live features will use neutral defaults", MODEL_FEATURES_PATH)
-
-    required = list(dict.fromkeys(MONEYLINE_FEATURES + SPREAD_FEATURES + TOTALS_FEATURES))
-    missing_before_fill = [col for col in required if col not in features.columns]
-    baseline_medians = {
-        col: pd.to_numeric(baseline[col], errors="coerce").median()
-        for col in required
-        if MODEL_FEATURES_PATH.exists() and col in baseline.columns
-    }
-    missing_values = {col: baseline_medians.get(col, 0.0) for col in missing_before_fill}
-    if missing_values:
-        features = pd.concat([features, pd.DataFrame(missing_values, index=features.index)], axis=1)
-    features = features.copy()
-    for col in required:
-        if col in features.columns:
-            features[col] = pd.to_numeric(features[col], errors="coerce").fillna(
-                baseline_medians.get(col, 0.0)
+        if "game_id" not in available_weather_columns:
+            logger.warning(
+                "Weather data returned without game_id; skipping weather merge"
+            )
+        else:
+            features = features.merge(
+                weather[available_weather_columns].drop_duplicates(
+                    subset=["game_id"]
+                ),
+                on="game_id",
+                how="left",
+                validate="one_to_one",
             )
 
-    # Recompute direct matchup fields after team snapshots are attached.
-    derived = {}
-    for col, home_col, away_col in (
-        ("WPct_diff", "home_WPct", "away_WPct"),
-        ("PythWPct_diff", "home_PythWPct", "away_PythWPct"),
-        ("ERA_diff", "away_ERA", "home_ERA"),
-        ("WHIP_diff", "away_WHIP", "home_WHIP"),
-        ("RS_advantage", "home_RS_G", "away_RS_G"),
-        ("RA_advantage", "away_RA_G", "home_RA_G"),
-    ):
-        if home_col in features and away_col in features:
-            derived[col] = features[home_col] - features[away_col]
-    if derived:
-        features = features.assign(**derived)
-    default_total = features["home_RS_G"] + features["away_RS_G"]
-    features = features.assign(
-        exp_total=features.get("posted_total", default_total).fillna(default_total),
-        hometeam=features["home_team"],
-        visteam=features["away_team"],
-        date=features.get("date", pd.Timestamp.now().date()),
-    )
-    _validate_live_feature_schema(features)
+    # Add team, pitcher, bullpen, lineup, park, and rolling-stat feature
+    # merges here. The resulting DataFrame must contain all columns in:
+    # UNDERDOG_FEATURES, SPREAD_FEATURES, and TOTAL_FEATURES.
+
     return features
 
 
-def _normalise_team_name(value: object) -> str:
-    """Map MLB API names such as 'New York Yankees' to Retrosheet names."""
-    name = " ".join(str(value or "").lower().replace(".", "").split())
-    aliases = {
-        "los angeles angels": "angels",
-        "la angels": "angels",
-        "los angeles dodgers": "dodgers",
-        "la dodgers": "dodgers",
-        "arizona diamondbacks": "diamondbacks",
-        "atlanta braves": "braves",
-        "baltimore orioles": "orioles",
-        "boston red sox": "red sox",
-        "chicago cubs": "cubs",
-        "chicago white sox": "white sox",
-        "cincinnati reds": "reds",
-        "cleveland guardians": "guardians",
-        "colorado rockies": "rockies",
-        "detroit tigers": "tigers",
-        "houston astros": "astros",
-        "kansas city royals": "royals",
-        "miami marlins": "marlins",
-        "milwaukee brewers": "brewers",
-        "minnesota twins": "twins",
-        "new york mets": "mets",
-        "new york yankees": "yankees",
-        "oakland athletics": "athletics",
-        "philadelphia phillies": "phillies",
-        "pittsburgh pirates": "pirates",
-        "san diego padres": "padres",
-        "san francisco giants": "giants",
-        "seattle mariners": "mariners",
-        "st louis cardinals": "cardinals",
-        "tampa bay rays": "rays",
-        "texas rangers": "rangers",
-        "toronto blue jays": "blue jays",
-        "washington nationals": "nationals",
-    }
-    return aliases.get(name, name)
+def _validate_model_features(
+    features: pd.DataFrame,
+    required_features: list[str],
+    model_name: str,
+) -> None:
+    """Fail loudly if a model's required features are absent or unusable."""
+    missing_columns = [
+        column
+        for column in required_features
+        if column not in features.columns
+    ]
 
+    all_null_columns = [
+        column
+        for column in required_features
+        if column in features.columns and features[column].isna().all()
+    ]
 
-def _merge_latest_team_features(features: pd.DataFrame, baseline: pd.DataFrame) -> None:
-    """Attach the latest season team-side features to live game rows."""
-    if baseline.empty or not {"hometeam", "visteam"}.issubset(baseline.columns):
-        return
-    baseline = baseline.copy()
-    if "date" in baseline:
-        baseline["date"] = pd.to_datetime(baseline["date"], errors="coerce")
-    if "season" in baseline:
-        current = baseline[baseline["season"] == baseline["season"].max()]
-        if not current.empty:
-            baseline = current
-
-    side_frames = []
-    for side, team_col in (("home", "hometeam"), ("away", "visteam")):
-        value_cols = [c for c in baseline.columns if c.startswith(f"{side}_")]
-        if not value_cols:
-            continue
-        team_rows = baseline[
-            [team_col] + value_cols + (["date"] if "date" in baseline else [])
-        ].copy()
-        team_rows["team_key"] = team_rows[team_col].map(_normalise_team_name)
-        team_rows = team_rows.sort_values("date" if "date" in team_rows else team_col)
-        team_rows = team_rows.drop_duplicates("team_key", keep="last")
-        team_rows = team_rows.rename(columns={c: f"team_{c[len(side) + 1 :]}" for c in value_cols})
-        side_frames.append(team_rows.set_index("team_key"))
-
-    if side_frames:
-        team_snapshot = pd.concat(side_frames, axis=0).groupby(level=0).last()
-    else:
-        team_snapshot = pd.DataFrame()
-
-    feature_updates = {}
-    for target_side, live_col in (("home", "home_team"), ("away", "away_team")):
-        if team_snapshot.empty:
-            continue
-        keys = features[live_col].map(_normalise_team_name)
-        team_values = team_snapshot.reindex(keys).reset_index(drop=True)
-        team_values = team_values.reset_index(drop=True)
-        for col in team_values.columns:
-            if col.startswith("team_"):
-                feature_updates[f"{target_side}_{col[5:]}"] = team_values[col].to_numpy()
-    if feature_updates:
-        features = pd.concat(
-            [features, pd.DataFrame(feature_updates, index=features.index)], axis=1
-        )
-
-
-def _validate_live_feature_schema(features: pd.DataFrame) -> None:
-    required = list(dict.fromkeys(MONEYLINE_FEATURES + SPREAD_FEATURES + TOTALS_FEATURES))
-    missing = [col for col in required if col not in features.columns]
-    if missing:
+    if missing_columns or all_null_columns:
         raise ValueError(
-            f"Live feature schema incomplete; missing {len(missing)} columns: {missing}"
+            f"{model_name} feature matrix is invalid. "
+            f"Missing columns: {missing_columns}. "
+            f"Columns containing only nulls: {all_null_columns}."
         )
 
 
 def _filter_picks(
-    predictions: pd.DataFrame, min_edge: float, min_confidence: float
+    predictions: pd.DataFrame,
+    min_edge: float,
+    min_confidence: float,
 ) -> pd.DataFrame:
-    """Return only rows that clear edge and confidence thresholds."""
-    edge_col = "edge" if "edge" in predictions.columns else None
-    conf_col = next(
-        (c for c in ("confidence_score", "pick_prob") if c in predictions.columns), None
+    """Filter predictions to publishable, complete selections."""
+    required_columns = [
+        "game_id",
+        "pick_value",
+        "predicted_prob",
+        "edge",
+        "confidence_score",
+    ]
+    _require_columns(
+        predictions,
+        required_columns,
+        context="model predictions",
     )
 
-    mask = pd.Series([True] * len(predictions), index=predictions.index)
-    if edge_col:
-        mask &= predictions[edge_col].fillna(0) >= min_edge
-    if conf_col:
-        mask &= predictions[conf_col].fillna(0) >= min_confidence
+    filtered = predictions.dropna(
+        subset=required_columns
+    ).copy()
 
-    sort_col = conf_col or edge_col
-    filtered = predictions[mask].copy()
-    if sort_col:
-        filtered = filtered.sort_values(sort_col, ascending=False)
-    return filtered
+    filtered["edge"] = pd.to_numeric(
+        filtered["edge"],
+        errors="coerce",
+    )
+    filtered["confidence_score"] = pd.to_numeric(
+        filtered["confidence_score"],
+        errors="coerce",
+    )
+    filtered["predicted_prob"] = pd.to_numeric(
+        filtered["predicted_prob"],
+        errors="coerce",
+    )
+
+    filtered = filtered.dropna(
+        subset=["edge", "confidence_score", "predicted_prob"]
+    )
+
+    filtered = filtered.loc[
+        (filtered["edge"] >= min_edge)
+        & (filtered["confidence_score"] >= min_confidence)
+    ].copy()
+
+    return filtered.sort_values(
+        by=["confidence_score", "edge"],
+        ascending=[False, False],
+    )
 
 
-def _format_picks(df: pd.DataFrame, pick_type: str) -> list[dict]:
-    """Serialize a predictions DataFrame to a list of pick dicts."""
-    picks = []
+def _format_picks(
+    df: pd.DataFrame,
+    pick_type: str,
+    target_date: date,
+) -> list[dict]:
+    """Convert model output into serializable pick records.
+
+    Records retain generated time and available market details so that a
+    later audit can evaluate the original pick rather than a changed line.
+    """
+    generated_at_et = datetime.now(MLB_TZ).isoformat()
+
+    picks: list[dict] = []
+
     for _, row in df.iterrows():
-        d = row.to_dict()
-        probability = d.get("pick_prob")
-        if probability is None:
-            probability = d.get("pred_home_win_prob") or d.get("pred_cover_prob") or 0
-        price = d.get("price_american")
-        edge = d.get("edge")
-        selected_ev = None
-        if pd.notna(price) and pd.notna(probability):
-            from src.markets.pricing import american_to_decimal, expected_value
-
-            selected_ev = expected_value(float(probability), american_to_decimal(int(price)))
         picks.append(
             {
-                "game_id": d.get("game_id"),
-                "away_team": d.get("away_team") or d.get("visteam"),
-                "home_team": d.get("home_team") or d.get("hometeam"),
+                "date": target_date.isoformat(),
+                "game_id": row.get("game_id"),
+                "away_team": row.get("away_team"),
+                "home_team": row.get("home_team"),
                 "pick_type": pick_type,
-                "pick_value": d.get("pick_side") or d.get("pick") or "",
-                "selection": d.get("selection"),
-                "predicted_prob": round(float(probability), 3),
-                "confidence_score": round(float(probability), 3),
-                "edge": round(float(edge), 3) if pd.notna(edge) else None,
-                "expected_value": round(float(selected_ev), 4) if selected_ev is not None else None,
-                "odds": int(price) if pd.notna(price) else None,
-                "line": float(d.get("point")) if pd.notna(d.get("point")) else None,
-                "book": d.get("bookmaker_id") or d.get("book") or "consensus",
-                "quote_time": d.get("quote_time"),
-                "snapshot_id": d.get("snapshot_id"),
-                "model_version": d.get("model_version") or "legacy_v1_quarantined",
+                "pick_value": row.get("pick_value", ""),
+                "predicted_prob": _rounded_value(
+                    row.get("predicted_prob"),
+                    decimals=3,
+                ),
+                "confidence": row.get("confidence", "low"),
+                "confidence_score": _rounded_value(
+                    row.get("confidence_score"),
+                    decimals=3,
+                ),
+                "edge": _rounded_value(
+                    row.get("edge"),
+                    decimals=3,
+                ),
+                "market": row.get("market", pick_type),
+                "selected_price": row.get(
+                    "selected_price",
+                    row.get("price"),
+                ),
+                "selected_line": row.get(
+                    "selected_line",
+                    row.get("line"),
+                ),
+                "market_implied_probability": _rounded_value(
+                    row.get("market_implied_probability"),
+                    decimals=3,
+                ),
+                "market_timestamp": row.get("market_timestamp"),
+                "scheduled_start_et": row.get(
+                    "game_datetime_et",
+                    row.get("game_time_et"),
+                ),
+                "generated_at_et": generated_at_et,
+                "model_name": f"xgb_{pick_type}_v1",
+                "is_locked": False,
             }
         )
+
     return picks
 
 
-def _write_pick_artifacts(
-    picks: dict, target_date: date, status: str, notes: str = "", source: str = "morning"
-) -> None:
-    """Write the dated history file, canonical snapshot, and status metadata."""
-    all_picks = [p for pick_list in picks.values() for p in pick_list]
-    df = pd.DataFrame(all_picks, columns=PICK_COLUMNS)
-    df["game_date"] = target_date.isoformat()
-    df["source"] = source
-
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    outpath = PROCESSED_DIR / f"picks_{target_date.isoformat()}.csv"
-    df.to_csv(outpath, index=False)
-    df.to_csv(PICKS_TODAY_PATH, index=False)
-
-    metadata = {
-        "status": status,
-        "target_date": target_date.isoformat(),
-        "picks_count": len(df),
-        "generated_at": pd.Timestamp.now(tz="UTC").isoformat(),
-        "source_commit": os.environ.get("GITHUB_SHA", "unknown"),
-        "notes": notes,
-    }
-    PICKS_METADATA_PATH.write_text(json.dumps(metadata, indent=2), encoding="utf-8")
-    logger.info("Pick artifacts saved → %s and %s", outpath, PICKS_TODAY_PATH)
-
-
 def _store_picks(
-    picks: dict, target_date: date, source: str = "morning", status: str = "ok", notes: str = ""
+    picks: dict[str, list[dict]],
+    target_date: date,
 ) -> None:
-    """Write pick artifacts, including a valid empty snapshot."""
-    _write_pick_artifacts(picks, target_date, status=status, notes=notes, source=source)
+    """Save the current daily pick set and append it to an audit ledger.
 
+    The date-specific CSV is the latest publishable slate for that date.
+    The append-only parquet ledger preserves every generated snapshot for
+    later auditing, line-movement analysis, and pick-lock implementation.
+    """
+    all_picks = [
+        pick
+        for pick_list in picks.values()
+        for pick in pick_list
+    ]
 
-def write_pipeline_status(status: str, target_date: date | None = None, notes: str = "") -> None:
-    """Persist an explicit pipeline status when orchestration catches a failure."""
-    _write_pick_artifacts(
-        {}, target_date or date.today(), status=status, notes=notes, source="pipeline"
+    if not all_picks:
+        logger.info("No qualifying picks to save for %s", target_date)
+        return
+
+    output_df = pd.DataFrame(all_picks)
+
+    PROCESSED_DIR.mkdir(
+        parents=True,
+        exist_ok=True,
     )
 
+    daily_path = PROCESSED_DIR / f"picks_{target_date.isoformat()}.csv"
+    output_df.to_csv(
+        daily_path,
+        index=False,
+    )
+    logger.info("Current daily picks saved to %s", daily_path)
 
-def _save_consensus_snapshot(consensus: pd.DataFrame, target_date: date, label: str) -> None:
-    """Persist a consensus odds snapshot for later comparison."""
-    PROCESSED_DIR.mkdir(parents=True, exist_ok=True)
-    path = PROCESSED_DIR / f"consensus_{target_date.isoformat()}_{label}.parquet"
-    consensus.to_parquet(path, index=False)
-    logger.info("Consensus snapshot (%s) saved → %s", label, path)
+    ledger_path = PROCESSED_DIR / "pick_ledger.parquet"
+
+    if ledger_path.exists():
+        existing_ledger = pd.read_parquet(ledger_path)
+        ledger = pd.concat(
+            [existing_ledger, output_df],
+            ignore_index=True,
+            sort=False,
+        )
+    else:
+        ledger = output_df.copy()
+
+    ledger.to_parquet(
+        ledger_path,
+        index=False,
+    )
+    logger.info("Pick audit ledger updated at %s", ledger_path)
+
+
+def _require_columns(
+    df: pd.DataFrame,
+    required_columns: list[str],
+    context: str,
+) -> None:
+    """Raise a clear error when a required source-data field is absent."""
+    missing_columns = [
+        column
+        for column in required_columns
+        if column not in df.columns
+    ]
+
+    if missing_columns:
+        raise ValueError(
+            f"{context} is missing required columns: {missing_columns}"
+        )
+
+
+def _rounded_value(
+    value: object,
+    decimals: int = 3,
+) -> Optional[float]:
+    """Return a rounded float or None for null/non-numeric values."""
+    if value is None or pd.isna(value):
+        return None
+
+    try:
+        return round(float(value), decimals)
+    except (TypeError, ValueError):
+        return None
 
 
 if __name__ == "__main__":
-    import logging as _logging
-
-    _logging.basicConfig(level=_logging.INFO)
     run_daily_pipeline()
