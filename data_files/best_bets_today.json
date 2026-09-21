@@ -1,13 +1,13 @@
 {
   "meta": {
     "sport": "MLB",
-    "generated_at": "2026-09-20T15:22:09.214741+00:00",
+    "generated_at": "2026-09-21T00:56:02.250540+00:00",
     "model_version": "1.0.0",
     "season": "2026",
     "status": "ok",
     "tier_definition": "edge-v1",
     "lookahead_days": 0,
-    "source_commit": "da69ee6f882c433ea593d6cbbab792460c3096e1",
+    "source_commit": "c4dcac0c59cd46ba156209c9f727480955d364ab",
     "total_bets": 10,
     "target_date": "2026-08-22",
     "picks_count": 10
