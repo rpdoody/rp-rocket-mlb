@@ -24,7 +24,7 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
-from src.ingestion.mlb_stats import fetch_probable_pitchers
+from src.ingestion.mlb_stats import fetch_todays_probable_pitchers
 from src.ingestion.odds import fetch_current_odds, get_consensus_line
 from src.ingestion.weather import fetch_weather_for_games
 from src.models.features import (
@@ -68,7 +68,7 @@ def run_daily_pipeline(
     logger.info("Running daily picks pipeline for %s", target_date)
 
     # ---- Step 1: Fetch target-date schedule and probable pitchers ----
-    schedule = fetch_probable_pitchers(target_date)
+    schedule = fetch_todays_probable_pitchers(target_date)
 
     if schedule.empty:
         logger.warning("No games found for %s", target_date)
